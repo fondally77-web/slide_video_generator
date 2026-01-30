@@ -1,14 +1,18 @@
 import PptxGenJS from 'pptxgenjs';
 import path from 'path';
 
-// レイアウトタイプの定義
+// レイアウトタイプの定義（Phase 1 + Phase 2）
 type LayoutType =
     | 'title'
     | 'data-emphasis'
     | 'three-columns'
     | 'two-columns'
     | 'timeline'
-    | 'bullet-points';
+    | 'bullet-points'
+    | 'network-diagram'
+    | 'bubble-chart'
+    | 'arrow-steps'
+    | 'formula-flow';
 
 interface Slide {
     id: string;
@@ -28,6 +32,29 @@ interface Slide {
         year: string;
         description: string;
     }>;
+    networkNodes?: Array<{
+        id: string;
+        label: string;
+    }>;
+    networkEdges?: Array<{
+        from: string;
+        to: string;
+    }>;
+    bubbles?: Array<{
+        label: string;
+        size: 'small' | 'medium' | 'large';
+        overlap?: string[];
+    }>;
+    arrowSteps?: Array<{
+        label: string;
+        description?: string;
+    }>;
+    formula?: {
+        left: string;
+        operator: string;
+        right: string;
+        result: string;
+    };
     notes: string;
     startTime: number;
     endTime: number;
@@ -42,6 +69,7 @@ const DESIGN = {
         textSecondary: '333333',
         accent: '000000',
         lightGray: 'EEEEEE',
+        mediumGray: 'CCCCCC',
     },
     fonts: {
         title: { face: 'Noto Sans JP', size: 48, bold: true },
@@ -54,10 +82,8 @@ const DESIGN = {
         stepDesc: { face: 'Noto Sans JP', size: 18, bold: false },
         yearLabel: { face: 'Noto Sans JP', size: 48, bold: true },
         caption: { face: 'Noto Sans JP', size: 18, bold: false },
-    },
-    slide: {
-        width: 10,
-        height: 5.625,
+        formula: { face: 'Noto Sans JP', size: 72, bold: true },
+        nodeLabel: { face: 'Noto Sans JP', size: 14, bold: true },
     },
 };
 
@@ -71,20 +97,15 @@ export async function createPptx(
 ): Promise<string> {
     const pptx = new PptxGenJS();
 
-    // プレゼンテーション設定
     pptx.author = 'Slide Video Generator';
     pptx.title = 'AI Generated Presentation';
     pptx.subject = 'Auto-generated from audio';
     pptx.layout = 'LAYOUT_16x9';
 
-    // 各スライドを生成
     for (const slideData of slides) {
         const slide = pptx.addSlide();
-
-        // 白背景を設定
         slide.background = { color: DESIGN.colors.background };
 
-        // レイアウトタイプに応じて描画
         switch (slideData.layoutType) {
             case 'title':
                 renderTitleSlide(slide, slideData);
@@ -101,13 +122,26 @@ export async function createPptx(
             case 'timeline':
                 renderTimelineSlide(slide, slideData);
                 break;
+            // Phase 2 レイアウト
+            case 'network-diagram':
+                renderNetworkDiagramSlide(slide, slideData);
+                break;
+            case 'bubble-chart':
+                renderBubbleChartSlide(slide, slideData);
+                break;
+            case 'arrow-steps':
+                renderArrowStepsSlide(slide, slideData);
+                break;
+            case 'formula-flow':
+                renderFormulaFlowSlide(slide, slideData);
+                break;
             case 'bullet-points':
             default:
                 renderBulletPointsSlide(slide, slideData);
                 break;
         }
 
-        // フッター（タイムスタンプ）
+        // フッター
         slide.addText(
             `${formatTime(slideData.startTime)} - ${formatTime(slideData.endTime)}`,
             {
@@ -121,18 +155,15 @@ export async function createPptx(
             }
         );
 
-        // ノート
         if (slideData.notes) {
             slide.addNotes(slideData.notes);
         }
 
-        // スライド切り替え時間
         slide.transition = { type: 'fade', speed: 'fast' };
-        // @ts-ignore - pptxgenjsの型定義にない
+        // @ts-ignore
         slide.advanceAfter = slideData.duration;
     }
 
-    // ファイル保存
     const fileName = `presentation_${projectId}.pptx`;
     const filePath = path.join(outputDir, fileName);
     await pptx.writeFile({ fileName: filePath });
@@ -141,9 +172,8 @@ export async function createPptx(
     return filePath;
 }
 
-/**
- * タイトルスライド - 大胆なタイトルのみ
- */
+// ===== Phase 1 レイアウト =====
+
 function renderTitleSlide(slide: any, data: Slide) {
     slide.addText(data.title, {
         x: 0.5,
@@ -159,11 +189,7 @@ function renderTitleSlide(slide: any, data: Slide) {
     });
 }
 
-/**
- * データ強調スライド - 左にテキスト、右に巨大な数字
- */
 function renderDataEmphasisSlide(slide: any, data: Slide) {
-    // タイトル
     slide.addText(data.title, {
         x: 0.5,
         y: 0.5,
@@ -175,10 +201,8 @@ function renderDataEmphasisSlide(slide: any, data: Slide) {
         color: DESIGN.colors.textPrimary,
     });
 
-    // 左側テキスト
     if (data.content && data.content.length > 0) {
-        const contentText = data.content.join('\n');
-        slide.addText(contentText, {
+        slide.addText(data.content.join('\n'), {
             x: 0.5,
             y: 1.8,
             w: 4.5,
@@ -190,7 +214,6 @@ function renderDataEmphasisSlide(slide: any, data: Slide) {
         });
     }
 
-    // 区切り線
     slide.addShape('line', {
         x: 5.2,
         y: 1.5,
@@ -199,7 +222,6 @@ function renderDataEmphasisSlide(slide: any, data: Slide) {
         line: { color: DESIGN.colors.lightGray, width: 2 },
     });
 
-    // 右側 - 巨大な数字
     if (data.emphasisNumber) {
         slide.addText(data.emphasisNumber, {
             x: 5.5,
@@ -215,7 +237,6 @@ function renderDataEmphasisSlide(slide: any, data: Slide) {
         });
     }
 
-    // 数字のラベル
     if (data.emphasisLabel) {
         slide.addText(data.emphasisLabel, {
             x: 5.5,
@@ -230,11 +251,7 @@ function renderDataEmphasisSlide(slide: any, data: Slide) {
     }
 }
 
-/**
- * 3カラムスライド - 3つのステップ
- */
 function renderThreeColumnsSlide(slide: any, data: Slide) {
-    // タイトル
     slide.addText(data.title, {
         x: 0.5,
         y: 0.5,
@@ -247,7 +264,6 @@ function renderThreeColumnsSlide(slide: any, data: Slide) {
         align: 'center',
     });
 
-    // 3つのステップ
     const steps = data.steps || [];
     const columnWidth = 2.8;
     const startX = 0.8;
@@ -255,7 +271,6 @@ function renderThreeColumnsSlide(slide: any, data: Slide) {
     steps.forEach((step, idx) => {
         const x = startX + idx * (columnWidth + 0.3);
 
-        // 番号
         slide.addText(step.number, {
             x: x,
             y: 1.5,
@@ -268,7 +283,6 @@ function renderThreeColumnsSlide(slide: any, data: Slide) {
             align: 'center',
         });
 
-        // タイトル
         slide.addText(step.title, {
             x: x,
             y: 2.7,
@@ -281,7 +295,6 @@ function renderThreeColumnsSlide(slide: any, data: Slide) {
             align: 'center',
         });
 
-        // 説明
         slide.addText(step.description, {
             x: x,
             y: 3.3,
@@ -295,11 +308,7 @@ function renderThreeColumnsSlide(slide: any, data: Slide) {
     });
 }
 
-/**
- * 2カラムスライド - 左右比較
- */
 function renderTwoColumnsSlide(slide: any, data: Slide) {
-    // タイトル
     slide.addText(data.title, {
         x: 0.5,
         y: 0.5,
@@ -312,7 +321,6 @@ function renderTwoColumnsSlide(slide: any, data: Slide) {
         align: 'center',
     });
 
-    // 中央の区切り線
     slide.addShape('line', {
         x: 5,
         y: 1.5,
@@ -321,7 +329,6 @@ function renderTwoColumnsSlide(slide: any, data: Slide) {
         line: { color: DESIGN.colors.accent, width: 3 },
     });
 
-    // 左カラムヘッダー
     slide.addText('課題', {
         x: 0.5,
         y: 1.3,
@@ -334,9 +341,7 @@ function renderTwoColumnsSlide(slide: any, data: Slide) {
         align: 'center',
     });
 
-    // 左カラム内容
-    const leftItems = data.leftColumn || [];
-    leftItems.forEach((item, idx) => {
+    (data.leftColumn || []).forEach((item, idx) => {
         slide.addText(`• ${item}`, {
             x: 0.5,
             y: 1.9 + idx * 0.7,
@@ -348,7 +353,6 @@ function renderTwoColumnsSlide(slide: any, data: Slide) {
         });
     });
 
-    // 右カラムヘッダー
     slide.addText('解決策', {
         x: 5.3,
         y: 1.3,
@@ -361,9 +365,7 @@ function renderTwoColumnsSlide(slide: any, data: Slide) {
         align: 'center',
     });
 
-    // 右カラム内容
-    const rightItems = data.rightColumn || [];
-    rightItems.forEach((item, idx) => {
+    (data.rightColumn || []).forEach((item, idx) => {
         slide.addText(`• ${item}`, {
             x: 5.3,
             y: 1.9 + idx * 0.7,
@@ -376,11 +378,7 @@ function renderTwoColumnsSlide(slide: any, data: Slide) {
     });
 }
 
-/**
- * タイムラインスライド - 年表形式
- */
 function renderTimelineSlide(slide: any, data: Slide) {
-    // タイトル
     slide.addText(data.title, {
         x: 0.5,
         y: 0.5,
@@ -393,14 +391,12 @@ function renderTimelineSlide(slide: any, data: Slide) {
         align: 'center',
     });
 
-    // タイムラインアイテム
     const items = data.timelineItems || [];
     const startY = 1.5;
 
     items.forEach((item, idx) => {
         const y = startY + idx * 1.1;
 
-        // 年号（大きく）
         slide.addText(item.year, {
             x: 0.5,
             y: y,
@@ -414,7 +410,6 @@ function renderTimelineSlide(slide: any, data: Slide) {
             valign: 'middle',
         });
 
-        // 区切り線
         slide.addShape('line', {
             x: 3.2,
             y: y + 0.1,
@@ -423,7 +418,6 @@ function renderTimelineSlide(slide: any, data: Slide) {
             line: { color: DESIGN.colors.lightGray, width: 2 },
         });
 
-        // 説明
         slide.addText(item.description, {
             x: 3.5,
             y: y,
@@ -437,11 +431,7 @@ function renderTimelineSlide(slide: any, data: Slide) {
     });
 }
 
-/**
- * 箇条書きスライド - シンプル
- */
 function renderBulletPointsSlide(slide: any, data: Slide) {
-    // タイトル
     slide.addText(data.title, {
         x: 0.5,
         y: 0.5,
@@ -453,9 +443,7 @@ function renderBulletPointsSlide(slide: any, data: Slide) {
         color: DESIGN.colors.textPrimary,
     });
 
-    // 箇条書き
-    const content = data.content || [];
-    content.forEach((item, idx) => {
+    (data.content || []).forEach((item, idx) => {
         slide.addText(`• ${item}`, {
             x: 0.8,
             y: 1.8 + idx * 0.9,
@@ -469,9 +457,313 @@ function renderBulletPointsSlide(slide: any, data: Slide) {
     });
 }
 
+// ===== Phase 2 レイアウト =====
+
 /**
- * 秒を MM:SS 形式に変換
+ * ネットワーク図解スライド
  */
+function renderNetworkDiagramSlide(slide: any, data: Slide) {
+    slide.addText(data.title, {
+        x: 0.5,
+        y: 0.3,
+        w: 9,
+        h: 0.7,
+        fontSize: DESIGN.fonts.subtitle.size,
+        fontFace: DESIGN.fonts.subtitle.face,
+        bold: DESIGN.fonts.subtitle.bold,
+        color: DESIGN.colors.textPrimary,
+        align: 'center',
+    });
+
+    const nodes = data.networkNodes || [];
+    const edges = data.networkEdges || [];
+
+    // ノード位置を計算（円形配置）
+    const centerX = 5;
+    const centerY = 2.8;
+    const radius = 1.8;
+    const nodePositions: Record<string, { x: number; y: number }> = {};
+
+    nodes.forEach((node, idx) => {
+        const angle = (2 * Math.PI * idx) / nodes.length - Math.PI / 2;
+        const x = centerX + radius * Math.cos(angle);
+        const y = centerY + radius * Math.sin(angle);
+        nodePositions[node.id] = { x, y };
+
+        // ノード（円）
+        slide.addShape('ellipse', {
+            x: x - 0.5,
+            y: y - 0.3,
+            w: 1,
+            h: 0.6,
+            fill: { color: DESIGN.colors.background },
+            line: { color: DESIGN.colors.textPrimary, width: 1.5 },
+        });
+
+        // ラベル
+        slide.addText(node.label, {
+            x: x - 0.6,
+            y: y - 0.2,
+            w: 1.2,
+            h: 0.4,
+            fontSize: DESIGN.fonts.nodeLabel.size,
+            fontFace: DESIGN.fonts.nodeLabel.face,
+            bold: true,
+            color: DESIGN.colors.textPrimary,
+            align: 'center',
+            valign: 'middle',
+        });
+    });
+
+    // エッジ（線）を描画
+    edges.forEach((edge) => {
+        const from = nodePositions[edge.from];
+        const to = nodePositions[edge.to];
+        if (from && to) {
+            slide.addShape('line', {
+                x: from.x,
+                y: from.y,
+                w: to.x - from.x,
+                h: to.y - from.y,
+                line: { color: DESIGN.colors.mediumGray, width: 1 },
+            });
+        }
+    });
+}
+
+/**
+ * バブルチャート/ベン図スライド
+ */
+function renderBubbleChartSlide(slide: any, data: Slide) {
+    slide.addText(data.title, {
+        x: 0.5,
+        y: 0.3,
+        w: 9,
+        h: 0.7,
+        fontSize: DESIGN.fonts.subtitle.size,
+        fontFace: DESIGN.fonts.subtitle.face,
+        bold: DESIGN.fonts.subtitle.bold,
+        color: DESIGN.colors.textPrimary,
+        align: 'center',
+    });
+
+    const bubbles = data.bubbles || [];
+    const centerX = 5;
+    const centerY = 2.8;
+
+    // バブルサイズマッピング
+    const sizeMap = { large: 2.5, medium: 1.8, small: 1.2 };
+
+    bubbles.forEach((bubble, idx) => {
+        const size = sizeMap[bubble.size];
+        // ネスト配置（左から右へ少しずつずらす）
+        const xOffset = (idx - bubbles.length / 2) * 0.8;
+        const x = centerX + xOffset;
+        const y = centerY;
+
+        // 円（透明度を表現するため、塗りつぶしなし）
+        slide.addShape('ellipse', {
+            x: x - size / 2,
+            y: y - size / 2,
+            w: size,
+            h: size,
+            fill: { color: DESIGN.colors.background, transparency: 80 },
+            line: { color: DESIGN.colors.textPrimary, width: 1.5 },
+        });
+
+        // ラベル
+        slide.addText(bubble.label, {
+            x: x - 1,
+            y: y - 0.2,
+            w: 2,
+            h: 0.4,
+            fontSize: 16,
+            fontFace: DESIGN.fonts.nodeLabel.face,
+            bold: true,
+            color: DESIGN.colors.textPrimary,
+            align: 'center',
+            valign: 'middle',
+        });
+    });
+}
+
+/**
+ * 矢印ステップスライド
+ */
+function renderArrowStepsSlide(slide: any, data: Slide) {
+    slide.addText(data.title, {
+        x: 0.5,
+        y: 0.3,
+        w: 9,
+        h: 0.7,
+        fontSize: DESIGN.fonts.subtitle.size,
+        fontFace: DESIGN.fonts.subtitle.face,
+        bold: DESIGN.fonts.subtitle.bold,
+        color: DESIGN.colors.textPrimary,
+        align: 'center',
+    });
+
+    const steps = data.arrowSteps || [];
+    const stepCount = steps.length;
+    const arrowWidth = 9 / stepCount;
+    const startX = 0.5;
+    const y = 2.2;
+
+    steps.forEach((step, idx) => {
+        const x = startX + idx * arrowWidth;
+        const isLast = idx === stepCount - 1;
+
+        // 矢印形状（シェブロン）
+        if (!isLast) {
+            // 矢印の胴体部分
+            slide.addShape('rect', {
+                x: x,
+                y: y,
+                w: arrowWidth - 0.3,
+                h: 1.2,
+                fill: { color: idx % 2 === 0 ? DESIGN.colors.textPrimary : DESIGN.colors.lightGray },
+            });
+
+            // 矢印の先端（三角形）
+            slide.addShape('triangle', {
+                x: x + arrowWidth - 0.5,
+                y: y - 0.2,
+                w: 0.4,
+                h: 1.6,
+                rotate: 90,
+                fill: { color: idx % 2 === 0 ? DESIGN.colors.textPrimary : DESIGN.colors.lightGray },
+            });
+        } else {
+            slide.addShape('rect', {
+                x: x,
+                y: y,
+                w: arrowWidth - 0.1,
+                h: 1.2,
+                fill: { color: DESIGN.colors.textPrimary },
+            });
+        }
+
+        // ステップラベル
+        slide.addText(step.label, {
+            x: x + 0.1,
+            y: y + 0.2,
+            w: arrowWidth - 0.4,
+            h: 0.4,
+            fontSize: 14,
+            fontFace: DESIGN.fonts.nodeLabel.face,
+            bold: true,
+            color: idx % 2 === 0 ? DESIGN.colors.background : DESIGN.colors.textPrimary,
+            align: 'center',
+        });
+
+        // 説明
+        if (step.description) {
+            slide.addText(step.description, {
+                x: x + 0.1,
+                y: y + 0.6,
+                w: arrowWidth - 0.4,
+                h: 0.4,
+                fontSize: 10,
+                fontFace: DESIGN.fonts.caption.face,
+                color: idx % 2 === 0 ? DESIGN.colors.background : DESIGN.colors.textSecondary,
+                align: 'center',
+            });
+        }
+    });
+}
+
+/**
+ * 数式・フロー図スライド
+ */
+function renderFormulaFlowSlide(slide: any, data: Slide) {
+    slide.addText(data.title, {
+        x: 0.5,
+        y: 0.5,
+        w: 9,
+        h: 0.8,
+        fontSize: DESIGN.fonts.subtitle.size,
+        fontFace: DESIGN.fonts.subtitle.face,
+        bold: DESIGN.fonts.subtitle.bold,
+        color: DESIGN.colors.textPrimary,
+        align: 'center',
+    });
+
+    const formula = data.formula;
+    if (!formula) return;
+
+    const centerY = 2.5;
+
+    // 左辺
+    slide.addText(formula.left, {
+        x: 0.5,
+        y: centerY,
+        w: 2.2,
+        h: 1,
+        fontSize: DESIGN.fonts.formula.size,
+        fontFace: DESIGN.fonts.formula.face,
+        bold: true,
+        color: DESIGN.colors.textPrimary,
+        align: 'center',
+        valign: 'middle',
+    });
+
+    // 演算子
+    slide.addText(formula.operator, {
+        x: 2.7,
+        y: centerY,
+        w: 1,
+        h: 1,
+        fontSize: DESIGN.fonts.formula.size,
+        fontFace: DESIGN.fonts.formula.face,
+        bold: true,
+        color: DESIGN.colors.mediumGray,
+        align: 'center',
+        valign: 'middle',
+    });
+
+    // 右辺
+    slide.addText(formula.right, {
+        x: 3.7,
+        y: centerY,
+        w: 2.2,
+        h: 1,
+        fontSize: DESIGN.fonts.formula.size,
+        fontFace: DESIGN.fonts.formula.face,
+        bold: true,
+        color: DESIGN.colors.textPrimary,
+        align: 'center',
+        valign: 'middle',
+    });
+
+    // イコール
+    slide.addText('=', {
+        x: 5.9,
+        y: centerY,
+        w: 1,
+        h: 1,
+        fontSize: DESIGN.fonts.formula.size,
+        fontFace: DESIGN.fonts.formula.face,
+        bold: true,
+        color: DESIGN.colors.mediumGray,
+        align: 'center',
+        valign: 'middle',
+    });
+
+    // 結果
+    slide.addText(formula.result, {
+        x: 6.9,
+        y: centerY,
+        w: 2.6,
+        h: 1,
+        fontSize: DESIGN.fonts.formula.size,
+        fontFace: DESIGN.fonts.formula.face,
+        bold: true,
+        color: DESIGN.colors.textPrimary,
+        align: 'center',
+        valign: 'middle',
+    });
+}
+
 function formatTime(seconds: number): string {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);

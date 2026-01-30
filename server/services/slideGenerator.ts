@@ -9,14 +9,20 @@ interface Segment {
     correctedText?: string;
 }
 
-// レイアウトタイプの定義
+// レイアウトタイプの定義（Phase 1 + Phase 2）
 type LayoutType =
+    // Phase 1
     | 'title'           // タイトル・タイポグラフィ
     | 'data-emphasis'   // テキスト＋データ強調
     | 'three-columns'   // 3ステップ・カラム
     | 'two-columns'     // 2カラム（課題 vs 解決）
     | 'timeline'        // 年表リスト
-    | 'bullet-points';  // シンプル箇条書き
+    | 'bullet-points'   // シンプル箇条書き
+    // Phase 2
+    | 'network-diagram' // ネットワーク図解
+    | 'bubble-chart'    // バブルチャート / ベン図
+    | 'arrow-steps'     // 矢印ステップ
+    | 'formula-flow';   // 数式・フロー図
 
 interface Slide {
     id: string;
@@ -36,6 +42,32 @@ interface Slide {
         year: string;
         description: string;
     }>;
+    // Phase 2 追加フィールド
+    networkNodes?: Array<{        // ネットワーク図解用
+        id: string;
+        label: string;
+    }>;
+    networkEdges?: Array<{        // ネットワーク図解用
+        from: string;
+        to: string;
+    }>;
+    bubbles?: Array<{             // バブルチャート用
+        label: string;
+        size: 'small' | 'medium' | 'large';
+        overlap?: string[];       // 重なる他のバブルのラベル
+    }>;
+    arrowSteps?: Array<{          // 矢印ステップ用
+        label: string;
+        description?: string;
+    }>;
+    formula?: {                   // 数式・フロー用
+        left: string;
+        operator: string;         // ×, +, →, =
+        right: string;
+        result: string;
+    };
+    generateImage?: boolean;      // DALL-E画像生成フラグ
+    imagePrompt?: string;         // 画像生成用プロンプト
     notes: string;
     startTime: number;
     endTime: number;
@@ -56,7 +88,7 @@ if (!isDevelopmentMode) {
     });
 }
 
-// デザイン仕様プロンプト
+// デザイン仕様プロンプト（Phase 2対応）
 const DESIGN_SYSTEM_PROMPT = `あなたはプロフェッショナルなプレゼンテーションデザイナーです。
 音声認識結果から、洗練されたミニマルデザインのスライドを作成してください。
 
@@ -69,31 +101,45 @@ const DESIGN_SYSTEM_PROMPT = `あなたはプロフェッショナルなプレ�
 - テキスト量: 本文は1スライドあたり50文字以内
 
 ## 使用可能なレイアウトタイプ
-1. "title" - タイトルスライド。大胆なタイトルのみ。オープニングやセクション区切りに使用。
-2. "data-emphasis" - 左にテキスト、右に巨大な数字。統計やデータを強調したい時に使用。
-3. "three-columns" - 3つのステップやポイント。プロセス説明に最適。
-4. "two-columns" - 左右2カラム。課題vs解決、ビフォーアフター、比較に使用。
-5. "timeline" - 年表形式。歴史や経緯の説明に使用。
-6. "bullet-points" - シンプルな箇条書き。一般的な説明に使用。
+
+### 基本レイアウト（Phase 1）
+1. "title" - タイトルスライド。大胆なタイトルのみ。
+2. "data-emphasis" - 左にテキスト、右に巨大な数字。統計やデータ強調に。
+3. "three-columns" - 3つのステップやポイント。プロセス説明に。
+4. "two-columns" - 左右2カラム。課題vs解決、比較に。
+5. "timeline" - 年表形式。歴史や経緯に。
+6. "bullet-points" - シンプルな箇条書き。一般説明に。
+
+### 高度なレイアウト（Phase 2）
+7. "network-diagram" - ネットワーク図解。関係性や接続を示す。ノードとエッジで構成。
+8. "bubble-chart" - バブルチャート/ベン図。重なり合う概念や集合を示す。
+9. "arrow-steps" - 矢印ステップ。線形プロセスや流れを示す。
+10. "formula-flow" - 数式・フロー図。「A × B = C」形式の関係性を示す。
 
 ## 出力形式
 JSON形式で以下の構造を返してください：
 {
   "slides": [
     {
-      "layoutType": "title" | "data-emphasis" | "three-columns" | "two-columns" | "timeline" | "bullet-points",
-      "title": "スライドタイトル（大きく表示される）",
-      "content": ["箇条書き1", "箇条書き2"],  // bullet-points用
-      "emphasisNumber": "85%",  // data-emphasis用
-      "emphasisLabel": "成功率",  // data-emphasis用
-      "leftColumn": ["左の項目1", "左の項目2"],  // two-columns用
-      "rightColumn": ["右の項目1", "右の項目2"],  // two-columns用
-      "steps": [  // three-columns用
-        {"number": "01", "title": "ステップ名", "description": "説明"}
-      ],
-      "timelineItems": [  // timeline用
-        {"year": "2024", "description": "出来事"}
-      ],
+      "layoutType": "レイアウトタイプ",
+      "title": "スライドタイトル",
+      
+      // 基本レイアウト用
+      "content": ["箇条書き1", "箇条書き2"],
+      "emphasisNumber": "85%",
+      "emphasisLabel": "成功率",
+      "leftColumn": ["左項目"],
+      "rightColumn": ["右項目"],
+      "steps": [{"number": "01", "title": "名前", "description": "説明"}],
+      "timelineItems": [{"year": "2024", "description": "出来事"}],
+      
+      // Phase 2 レイアウト用
+      "networkNodes": [{"id": "a", "label": "ノードA"}, {"id": "b", "label": "ノードB"}],
+      "networkEdges": [{"from": "a", "to": "b"}],
+      "bubbles": [{"label": "概念A", "size": "large"}, {"label": "概念B", "size": "medium", "overlap": ["概念A"]}],
+      "arrowSteps": [{"label": "ステップ1"}, {"label": "ステップ2"}, {"label": "ステップ3"}],
+      "formula": {"left": "データ", "operator": "×", "right": "AI", "result": "インサイト"},
+      
       "notes": "話者用メモ",
       "startTime": 0,
       "endTime": 15
@@ -101,12 +147,15 @@ JSON形式で以下の構造を返してください：
   ]
 }
 
-## 重要なルール
-- 内容に最適なレイアウトを自動で選択すること
-- 数字やデータがあれば data-emphasis を積極的に使用
-- プロセスや手順があれば three-columns を使用
-- 比較があれば two-columns を使用
-- タイムスタンプを考慮して各スライドの時間を設定`;
+## レイアウト選択ガイド
+- 関係性・接続 → network-diagram
+- 重なり・集合 → bubble-chart
+- 線形プロセス → arrow-steps（大きな矢印で3〜5ステップ）
+- 数式的関係 → formula-flow（A × B = C 形式）
+- 数字・データ → data-emphasis
+- 比較 → two-columns
+- 手順 → three-columns
+- 歴史 → timeline`;
 
 /**
  * テキストセグメントからスライド構成を生成
@@ -139,7 +188,8 @@ export async function generateSlides(segments: Segment[]): Promise<Slide[]> {
                 },
                 {
                     role: 'user',
-                    content: `以下の音声認識結果から、洗練されたミニマルデザインのスライドを作成してください：
+                    content: `以下の音声認識結果から、洗練されたミニマルデザインのスライドを作成してください。
+内容に応じて、Phase 2の高度なレイアウト（network-diagram, bubble-chart, arrow-steps, formula-flow）も積極的に使用してください。
 
 ${segmentsText}`,
                 },
@@ -165,6 +215,14 @@ ${segmentsText}`,
             rightColumn: slide.rightColumn,
             steps: slide.steps,
             timelineItems: slide.timelineItems,
+            // Phase 2
+            networkNodes: slide.networkNodes,
+            networkEdges: slide.networkEdges,
+            bubbles: slide.bubbles,
+            arrowSteps: slide.arrowSteps,
+            formula: slide.formula,
+            generateImage: slide.generateImage,
+            imagePrompt: slide.imagePrompt,
             notes: slide.notes || '',
             startTime: slide.startTime || 0,
             endTime: slide.endTime || 0,
@@ -179,10 +237,11 @@ ${segmentsText}`,
 }
 
 /**
- * 開発用モックスライド（6種類のレイアウトをデモ）
+ * 開発用モックスライド（Phase 1 + Phase 2のレイアウトをデモ）
  */
 function getMockSlides(): Slide[] {
     return [
+        // Phase 1 レイアウト
         {
             id: nanoid(8),
             layoutType: 'title',
@@ -205,46 +264,90 @@ function getMockSlides(): Slide[] {
             endTime: 30,
             duration: 15,
         },
+        // Phase 2 レイアウト
         {
             id: nanoid(8),
-            layoutType: 'three-columns',
-            title: 'AIの3つの柱',
+            layoutType: 'network-diagram',
+            title: 'AI技術のエコシステム',
             content: [],
-            steps: [
-                { number: '01', title: '機械学習', description: 'データから学習' },
-                { number: '02', title: '深層学習', description: 'ニューラルネットワーク' },
-                { number: '03', title: '生成AI', description: 'コンテンツ生成' },
+            networkNodes: [
+                { id: 'ml', label: '機械学習' },
+                { id: 'dl', label: '深層学習' },
+                { id: 'nlp', label: '自然言語処理' },
+                { id: 'cv', label: '画像認識' },
+                { id: 'ai', label: 'AI' },
             ],
-            notes: '3ステップレイアウト',
+            networkEdges: [
+                { from: 'ai', to: 'ml' },
+                { from: 'ml', to: 'dl' },
+                { from: 'dl', to: 'nlp' },
+                { from: 'dl', to: 'cv' },
+            ],
+            notes: 'ネットワーク図解レイアウト',
             startTime: 30,
             endTime: 45,
             duration: 15,
         },
         {
             id: nanoid(8),
-            layoutType: 'two-columns',
-            title: '導入前後の変化',
+            layoutType: 'bubble-chart',
+            title: 'AI・ML・DLの関係',
             content: [],
-            leftColumn: ['手作業でのデータ処理', '属人的な判断', '時間がかかる'],
-            rightColumn: ['自動化されたワークフロー', 'データ駆動の意思決定', '高速処理'],
-            notes: '2カラム比較レイアウト',
+            bubbles: [
+                { label: '人工知能', size: 'large' },
+                { label: '機械学習', size: 'medium', overlap: ['人工知能'] },
+                { label: '深層学習', size: 'small', overlap: ['機械学習'] },
+            ],
+            notes: 'バブルチャート/ベン図レイアウト',
             startTime: 45,
             endTime: 60,
             duration: 15,
         },
         {
             id: nanoid(8),
-            layoutType: 'timeline',
-            title: 'AI発展の歴史',
+            layoutType: 'arrow-steps',
+            title: 'データ処理パイプライン',
             content: [],
-            timelineItems: [
-                { year: '1956', description: 'AI研究の始まり' },
-                { year: '2012', description: 'ディープラーニング革命' },
-                { year: '2022', description: '生成AIの台頭' },
+            arrowSteps: [
+                { label: 'データ収集', description: '様々なソースから' },
+                { label: '前処理', description: 'クリーニング・変換' },
+                { label: 'モデル学習', description: 'パターン抽出' },
+                { label: '予測', description: '新データに適用' },
             ],
-            notes: 'タイムラインレイアウト',
+            notes: '矢印ステップレイアウト',
             startTime: 60,
             endTime: 75,
+            duration: 15,
+        },
+        {
+            id: nanoid(8),
+            layoutType: 'formula-flow',
+            title: 'AI活用の公式',
+            content: [],
+            formula: {
+                left: 'データ',
+                operator: '×',
+                right: 'AI',
+                result: 'ビジネス価値',
+            },
+            notes: '数式・フロー図レイアウト',
+            startTime: 75,
+            endTime: 90,
+            duration: 15,
+        },
+        {
+            id: nanoid(8),
+            layoutType: 'three-columns',
+            title: '導入ステップ',
+            content: [],
+            steps: [
+                { number: '01', title: '課題特定', description: '解決すべき問題を明確に' },
+                { number: '02', title: 'PoC実施', description: '小規模で効果検証' },
+                { number: '03', title: '本格展開', description: '全社への展開' },
+            ],
+            notes: '3ステップレイアウト',
+            startTime: 90,
+            endTime: 105,
             duration: 15,
         },
         {
@@ -252,13 +355,13 @@ function getMockSlides(): Slide[] {
             layoutType: 'bullet-points',
             title: 'まとめ',
             content: [
-                'AIは私たちの生活を変革している',
-                '適切な活用が成功の鍵',
-                '継続的な学習が重要',
+                'AIは多様な技術の集合体',
+                '適切なレイアウトで情報を伝える',
+                '視覚的表現が理解を促進する',
             ],
             notes: 'クロージング',
-            startTime: 75,
-            endTime: 90,
+            startTime: 105,
+            endTime: 120,
             duration: 15,
         },
     ];
