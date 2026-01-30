@@ -1,15 +1,47 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 
+type LayoutType =
+    | 'title'
+    | 'data-emphasis'
+    | 'three-columns'
+    | 'two-columns'
+    | 'timeline'
+    | 'bullet-points';
+
 interface Slide {
     id: string;
+    layoutType: LayoutType;
     title: string;
     content: string[];
+    emphasisNumber?: string;
+    emphasisLabel?: string;
+    leftColumn?: string[];
+    rightColumn?: string[];
+    steps?: Array<{
+        number: string;
+        title: string;
+        description: string;
+    }>;
+    timelineItems?: Array<{
+        year: string;
+        description: string;
+    }>;
     notes: string;
     startTime: number;
     endTime: number;
     duration: number;
 }
+
+// レイアウト名の日本語マッピング
+const layoutNames: Record<LayoutType, string> = {
+    'title': 'タイトル',
+    'data-emphasis': 'データ強調',
+    'three-columns': '3カラム',
+    'two-columns': '2カラム',
+    'timeline': 'タイムライン',
+    'bullet-points': '箇条書き',
+};
 
 function Preview() {
     const navigate = useNavigate();
@@ -69,6 +101,285 @@ function Preview() {
         const mins = Math.floor(seconds / 60);
         const secs = Math.floor(seconds % 60);
         return `${mins}:${secs.toString().padStart(2, '0')}`;
+    };
+
+    // スライドプレビューのレンダリング
+    const renderSlidePreview = (slide: Slide) => {
+        const baseStyle: React.CSSProperties = {
+            background: 'white',
+            borderRadius: '0.5rem',
+            padding: '2rem',
+            aspectRatio: '16/9',
+            color: '#1e293b',
+            display: 'flex',
+            flexDirection: 'column',
+            position: 'relative',
+            overflow: 'hidden',
+        };
+
+        switch (slide.layoutType) {
+            case 'title':
+                return (
+                    <div style={{
+                        ...baseStyle,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                    }}>
+                        <h2 style={{
+                            fontSize: '2.5rem',
+                            fontWeight: '700',
+                            color: '#000',
+                            textAlign: 'center',
+                        }}>
+                            {slide.title}
+                        </h2>
+                    </div>
+                );
+
+            case 'data-emphasis':
+                return (
+                    <div style={baseStyle}>
+                        <h3 style={{
+                            fontSize: '1.25rem',
+                            fontWeight: '700',
+                            marginBottom: '1rem',
+                            color: '#000',
+                        }}>
+                            {slide.title}
+                        </h3>
+                        <div style={{
+                            display: 'flex',
+                            flex: 1,
+                            alignItems: 'center',
+                        }}>
+                            <div style={{ flex: 1 }}>
+                                {slide.content?.map((item, idx) => (
+                                    <p key={idx} style={{
+                                        fontSize: '0.875rem',
+                                        color: '#333',
+                                        marginBottom: '0.5rem',
+                                    }}>
+                                        {item}
+                                    </p>
+                                ))}
+                            </div>
+                            <div style={{
+                                borderLeft: '2px solid #eee',
+                                paddingLeft: '1.5rem',
+                                marginLeft: '1rem',
+                                textAlign: 'center',
+                            }}>
+                                <div style={{
+                                    fontSize: '3rem',
+                                    fontWeight: '700',
+                                    color: '#000',
+                                }}>
+                                    {slide.emphasisNumber}
+                                </div>
+                                <div style={{
+                                    fontSize: '0.75rem',
+                                    color: '#666',
+                                }}>
+                                    {slide.emphasisLabel}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                );
+
+            case 'three-columns':
+                return (
+                    <div style={baseStyle}>
+                        <h3 style={{
+                            fontSize: '1.25rem',
+                            fontWeight: '700',
+                            marginBottom: '1.5rem',
+                            color: '#000',
+                            textAlign: 'center',
+                        }}>
+                            {slide.title}
+                        </h3>
+                        <div style={{
+                            display: 'flex',
+                            gap: '1rem',
+                            flex: 1,
+                        }}>
+                            {slide.steps?.map((step, idx) => (
+                                <div key={idx} style={{
+                                    flex: 1,
+                                    textAlign: 'center',
+                                }}>
+                                    <div style={{
+                                        fontSize: '2rem',
+                                        fontWeight: '700',
+                                        color: '#ddd',
+                                    }}>
+                                        {step.number}
+                                    </div>
+                                    <div style={{
+                                        fontSize: '0.875rem',
+                                        fontWeight: '600',
+                                        color: '#000',
+                                        marginBottom: '0.25rem',
+                                    }}>
+                                        {step.title}
+                                    </div>
+                                    <div style={{
+                                        fontSize: '0.75rem',
+                                        color: '#666',
+                                    }}>
+                                        {step.description}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                );
+
+            case 'two-columns':
+                return (
+                    <div style={baseStyle}>
+                        <h3 style={{
+                            fontSize: '1.25rem',
+                            fontWeight: '700',
+                            marginBottom: '1rem',
+                            color: '#000',
+                            textAlign: 'center',
+                        }}>
+                            {slide.title}
+                        </h3>
+                        <div style={{
+                            display: 'flex',
+                            flex: 1,
+                            gap: '0.5rem',
+                        }}>
+                            <div style={{ flex: 1 }}>
+                                <div style={{
+                                    fontSize: '0.75rem',
+                                    fontWeight: '600',
+                                    color: '#666',
+                                    marginBottom: '0.5rem',
+                                    textAlign: 'center',
+                                }}>
+                                    課題
+                                </div>
+                                {slide.leftColumn?.map((item, idx) => (
+                                    <p key={idx} style={{
+                                        fontSize: '0.75rem',
+                                        color: '#333',
+                                        marginBottom: '0.25rem',
+                                    }}>
+                                        • {item}
+                                    </p>
+                                ))}
+                            </div>
+                            <div style={{
+                                width: '2px',
+                                background: '#000',
+                            }} />
+                            <div style={{ flex: 1 }}>
+                                <div style={{
+                                    fontSize: '0.75rem',
+                                    fontWeight: '600',
+                                    color: '#000',
+                                    marginBottom: '0.5rem',
+                                    textAlign: 'center',
+                                }}>
+                                    解決策
+                                </div>
+                                {slide.rightColumn?.map((item, idx) => (
+                                    <p key={idx} style={{
+                                        fontSize: '0.75rem',
+                                        color: '#000',
+                                        marginBottom: '0.25rem',
+                                    }}>
+                                        • {item}
+                                    </p>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                );
+
+            case 'timeline':
+                return (
+                    <div style={baseStyle}>
+                        <h3 style={{
+                            fontSize: '1.25rem',
+                            fontWeight: '700',
+                            marginBottom: '1rem',
+                            color: '#000',
+                            textAlign: 'center',
+                        }}>
+                            {slide.title}
+                        </h3>
+                        <div style={{ flex: 1 }}>
+                            {slide.timelineItems?.map((item, idx) => (
+                                <div key={idx} style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    marginBottom: '0.75rem',
+                                }}>
+                                    <div style={{
+                                        fontSize: '1.25rem',
+                                        fontWeight: '700',
+                                        color: '#000',
+                                        width: '4rem',
+                                        textAlign: 'right',
+                                        marginRight: '0.75rem',
+                                    }}>
+                                        {item.year}
+                                    </div>
+                                    <div style={{
+                                        width: '2px',
+                                        height: '1.5rem',
+                                        background: '#eee',
+                                        marginRight: '0.75rem',
+                                    }} />
+                                    <div style={{
+                                        fontSize: '0.875rem',
+                                        color: '#333',
+                                    }}>
+                                        {item.description}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                );
+
+            case 'bullet-points':
+            default:
+                return (
+                    <div style={baseStyle}>
+                        <h3 style={{
+                            fontSize: '1.5rem',
+                            fontWeight: '700',
+                            marginBottom: '1rem',
+                            color: '#000',
+                        }}>
+                            {slide.title}
+                        </h3>
+                        <ul style={{
+                            listStyle: 'none',
+                            padding: 0,
+                        }}>
+                            {slide.content?.map((item, idx) => (
+                                <li key={idx} style={{
+                                    fontSize: '1rem',
+                                    color: '#333',
+                                    marginBottom: '0.75rem',
+                                    display: 'flex',
+                                    alignItems: 'flex-start',
+                                }}>
+                                    <span style={{ marginRight: '0.5rem' }}>•</span>
+                                    {item}
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                );
+        }
     };
 
     if (isLoading) {
@@ -140,47 +451,31 @@ function Preview() {
                             marginBottom: '1rem',
                         }}>
                             <h2>📊 スライドプレビュー</h2>
-                            <span style={{
-                                background: '#334155',
-                                padding: '0.25rem 0.75rem',
-                                borderRadius: '1rem',
-                                fontSize: '0.875rem',
-                            }}>
-                                {selectedSlide + 1} / {slides.length}
-                            </span>
+                            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                                {currentSlide && (
+                                    <span style={{
+                                        background: 'rgba(99, 102, 241, 0.2)',
+                                        padding: '0.25rem 0.5rem',
+                                        borderRadius: '0.25rem',
+                                        fontSize: '0.75rem',
+                                        color: '#a5b4fc',
+                                    }}>
+                                        {layoutNames[currentSlide.layoutType]}
+                                    </span>
+                                )}
+                                <span style={{
+                                    background: '#334155',
+                                    padding: '0.25rem 0.75rem',
+                                    borderRadius: '1rem',
+                                    fontSize: '0.875rem',
+                                }}>
+                                    {selectedSlide + 1} / {slides.length}
+                                </span>
+                            </div>
                         </div>
 
                         {/* スライド表示 */}
-                        {currentSlide && (
-                            <div style={{
-                                background: 'white',
-                                borderRadius: '0.5rem',
-                                padding: '2rem',
-                                aspectRatio: '16/9',
-                                color: '#1e293b',
-                                display: 'flex',
-                                flexDirection: 'column',
-                            }}>
-                                <h3 style={{
-                                    fontSize: '1.5rem',
-                                    fontWeight: '700',
-                                    marginBottom: '1.5rem',
-                                    color: '#6366f1',
-                                }}>
-                                    {currentSlide.title}
-                                </h3>
-                                <ul style={{
-                                    listStyle: 'disc',
-                                    paddingLeft: '1.5rem',
-                                    fontSize: '1rem',
-                                    lineHeight: '2',
-                                }}>
-                                    {currentSlide.content.map((item, idx) => (
-                                        <li key={idx}>{item}</li>
-                                    ))}
-                                </ul>
-                            </div>
-                        )}
+                        {currentSlide && renderSlidePreview(currentSlide)}
 
                         {/* タイムスタンプ情報 */}
                         {currentSlide && (
@@ -253,11 +548,26 @@ function Preview() {
                                         }}
                                     >
                                         <div style={{
-                                            fontSize: '0.75rem',
-                                            color: '#94a3b8',
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center',
                                             marginBottom: '0.25rem',
                                         }}>
-                                            {index + 1}. {formatTime(slide.startTime)} ({slide.duration}秒)
+                                            <span style={{
+                                                fontSize: '0.75rem',
+                                                color: '#94a3b8',
+                                            }}>
+                                                {index + 1}. {formatTime(slide.startTime)}
+                                            </span>
+                                            <span style={{
+                                                fontSize: '0.625rem',
+                                                background: 'rgba(255,255,255,0.1)',
+                                                padding: '0.125rem 0.375rem',
+                                                borderRadius: '0.25rem',
+                                                color: '#94a3b8',
+                                            }}>
+                                                {layoutNames[slide.layoutType]}
+                                            </span>
                                         </div>
                                         <div style={{
                                             fontSize: '0.875rem',
@@ -295,7 +605,7 @@ function Preview() {
                             color: '#64748b',
                             textAlign: 'center',
                         }}>
-                            ※ 切り替え時間が設定されています
+                            ※ 洗練されたミニマルデザイン
                         </p>
 
                         <button
