@@ -9,6 +9,12 @@ import { transcribeAudio } from './services/speechToText.js';
 import { correctText } from './services/textCorrection.js';
 import { generateSlides } from './services/slideGenerator.js';
 import { createPptx } from './services/pptxGenerator.js';
+import {
+    checkVoicevoxStatus,
+    synthesizeSpeech,
+    getCharacterList,
+    VOICEVOX_CHARACTERS,
+} from './services/voicevoxService.js';
 
 dotenv.config();
 
@@ -226,6 +232,70 @@ app.get('/api/project/:id/download', async (req, res) => {
         console.error('ダウンロードエラー:', error);
         res.status(500).json({ error: 'ダウンロードに失敗しました' });
     }
+});
+
+// ===== VOICEVOX API =====
+
+// 7. VOICEVOXステータス確認
+app.get('/api/voicevox/status', async (req, res) => {
+    try {
+        const isRunning = await checkVoicevoxStatus();
+        res.json({
+            available: isRunning,
+            message: isRunning ? 'VOICEVOX Engineが起動中です' : 'VOICEVOX Engineが起動していません',
+        });
+    } catch (error) {
+        res.json({ available: false, message: 'ステータス確認に失敗しました' });
+    }
+});
+
+// 8. キャラクター一覧取得
+app.get('/api/voicevox/characters', async (req, res) => {
+    try {
+        const characters = getCharacterList();
+        res.json({ characters });
+    } catch (error) {
+        res.status(500).json({ error: 'キャラクター取得に失敗しました' });
+    }
+});
+
+// 9. 音声合成
+app.post('/api/voicevox/synthesize', async (req, res) => {
+    try {
+        const { text, characterKey } = req.body;
+        if (!text || !characterKey) {
+            return res.status(400).json({ error: 'テキストとキャラクターキーが必要です' });
+        }
+
+        // VOICEVOXが起動しているか確認
+        const isRunning = await checkVoicevoxStatus();
+        if (!isRunning) {
+            return res.status(503).json({
+                error: 'VOICEVOX Engineが起動していません。VOICEVOXを起動してください。',
+            });
+        }
+
+        const result = await synthesizeSpeech(text, characterKey, outputDir, `voice_${nanoid(8)}.wav`);
+
+        if (result.success && result.audioPath) {
+            res.json({
+                success: true,
+                audioUrl: `/api/audio/${path.basename(result.audioPath)}`,
+                duration: result.duration,
+            });
+        } else {
+            res.status(500).json({ success: false, error: result.error });
+        }
+    } catch (error) {
+        console.error('音声合成エラー:', error);
+        res.status(500).json({ error: '音声合成に失敗しました' });
+    }
+});
+
+// 10. 音声ファイル配信
+app.get('/api/audio/:filename', (req, res) => {
+    const filePath = path.join(outputDir, req.params.filename);
+    res.sendFile(filePath);
 });
 
 // ディレクトリ作成

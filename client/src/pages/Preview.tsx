@@ -32,36 +32,23 @@ interface Slide {
         year: string;
         description: string;
     }>;
-    networkNodes?: Array<{
-        id: string;
-        label: string;
-    }>;
-    networkEdges?: Array<{
-        from: string;
-        to: string;
-    }>;
-    bubbles?: Array<{
-        label: string;
-        size: 'small' | 'medium' | 'large';
-        overlap?: string[];
-    }>;
-    arrowSteps?: Array<{
-        label: string;
-        description?: string;
-    }>;
-    formula?: {
-        left: string;
-        operator: string;
-        right: string;
-        result: string;
-    };
+    networkNodes?: Array<{ id: string; label: string }>;
+    networkEdges?: Array<{ from: string; to: string }>;
+    bubbles?: Array<{ label: string; size: 'small' | 'medium' | 'large'; overlap?: string[] }>;
+    arrowSteps?: Array<{ label: string; description?: string }>;
+    formula?: { left: string; operator: string; right: string; result: string };
     notes: string;
     startTime: number;
     endTime: number;
     duration: number;
 }
 
-// レイアウト名の日本語マッピング
+interface VoicevoxCharacter {
+    key: string;
+    name: string;
+    style: string;
+}
+
 const layoutNames: Record<LayoutType, string> = {
     'title': 'タイトル',
     'data-emphasis': 'データ強調',
@@ -86,12 +73,21 @@ function Preview() {
     const [error, setError] = useState<string | null>(null);
     const [selectedSlide, setSelectedSlide] = useState(0);
 
+    // VOICEVOX関連のstate
+    const [voicevoxAvailable, setVoicevoxAvailable] = useState(false);
+    const [characters, setCharacters] = useState<VoicevoxCharacter[]>([]);
+    const [selectedCharacter, setSelectedCharacter] = useState('zundamon-normal');
+    const [isSynthesizing, setIsSynthesizing] = useState(false);
+    const [audioUrl, setAudioUrl] = useState<string | null>(null);
+
     useEffect(() => {
         if (!projectId) {
             navigate('/upload');
             return;
         }
         fetchSlides();
+        checkVoicevoxStatus();
+        fetchCharacters();
     }, [projectId]);
 
     const fetchSlides = async () => {
@@ -107,12 +103,61 @@ function Preview() {
         }
     };
 
+    const checkVoicevoxStatus = async () => {
+        try {
+            const response = await fetch('/api/voicevox/status');
+            const data = await response.json();
+            setVoicevoxAvailable(data.available);
+        } catch {
+            setVoicevoxAvailable(false);
+        }
+    };
+
+    const fetchCharacters = async () => {
+        try {
+            const response = await fetch('/api/voicevox/characters');
+            const data = await response.json();
+            setCharacters(data.characters || []);
+        } catch {
+            setCharacters([]);
+        }
+    };
+
+    const handleSynthesize = async () => {
+        const currentSlide = slides[selectedSlide];
+        if (!currentSlide) return;
+
+        const text = currentSlide.notes || currentSlide.title;
+        if (!text) return;
+
+        setIsSynthesizing(true);
+        setAudioUrl(null);
+
+        try {
+            const response = await fetch('/api/voicevox/synthesize', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text, characterKey: selectedCharacter }),
+            });
+
+            const data = await response.json();
+            if (data.success && data.audioUrl) {
+                setAudioUrl(data.audioUrl);
+            } else {
+                setError(data.error || '音声合成に失敗しました');
+            }
+        } catch (err) {
+            setError(err instanceof Error ? err.message : '音声合成に失敗しました');
+        } finally {
+            setIsSynthesizing(false);
+        }
+    };
+
     const handleDownload = async () => {
         setIsDownloading(true);
         try {
             const response = await fetch(`/api/project/${projectId}/download`);
             if (!response.ok) throw new Error('ダウンロードに失敗しました');
-
             const blob = await response.blob();
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -135,7 +180,6 @@ function Preview() {
         return `${mins}:${secs.toString().padStart(2, '0')}`;
     };
 
-    // スライドプレビューのレンダリング
     const renderSlidePreview = (slide: Slide) => {
         const baseStyle: React.CSSProperties = {
             background: 'white',
@@ -153,18 +197,13 @@ function Preview() {
             case 'title':
                 return (
                     <div style={{ ...baseStyle, justifyContent: 'center', alignItems: 'center' }}>
-                        <h2 style={{ fontSize: '2rem', fontWeight: '700', color: '#000', textAlign: 'center' }}>
-                            {slide.title}
-                        </h2>
+                        <h2 style={{ fontSize: '2rem', fontWeight: '700', color: '#000', textAlign: 'center' }}>{slide.title}</h2>
                     </div>
                 );
-
             case 'data-emphasis':
                 return (
                     <div style={baseStyle}>
-                        <h3 style={{ fontSize: '1.1rem', fontWeight: '700', marginBottom: '0.75rem', color: '#000' }}>
-                            {slide.title}
-                        </h3>
+                        <h3 style={{ fontSize: '1.1rem', fontWeight: '700', marginBottom: '0.75rem', color: '#000' }}>{slide.title}</h3>
                         <div style={{ display: 'flex', flex: 1, alignItems: 'center' }}>
                             <div style={{ flex: 1 }}>
                                 {slide.content?.map((item, idx) => (
@@ -178,13 +217,10 @@ function Preview() {
                         </div>
                     </div>
                 );
-
             case 'three-columns':
                 return (
                     <div style={baseStyle}>
-                        <h3 style={{ fontSize: '1.1rem', fontWeight: '700', marginBottom: '1rem', color: '#000', textAlign: 'center' }}>
-                            {slide.title}
-                        </h3>
+                        <h3 style={{ fontSize: '1.1rem', fontWeight: '700', marginBottom: '1rem', color: '#000', textAlign: 'center' }}>{slide.title}</h3>
                         <div style={{ display: 'flex', gap: '0.5rem', flex: 1 }}>
                             {slide.steps?.map((step, idx) => (
                                 <div key={idx} style={{ flex: 1, textAlign: 'center' }}>
@@ -196,159 +232,10 @@ function Preview() {
                         </div>
                     </div>
                 );
-
-            case 'two-columns':
-                return (
-                    <div style={baseStyle}>
-                        <h3 style={{ fontSize: '1.1rem', fontWeight: '700', marginBottom: '0.75rem', color: '#000', textAlign: 'center' }}>
-                            {slide.title}
-                        </h3>
-                        <div style={{ display: 'flex', flex: 1, gap: '0.25rem' }}>
-                            <div style={{ flex: 1 }}>
-                                <div style={{ fontSize: '0.65rem', fontWeight: '600', color: '#666', marginBottom: '0.25rem', textAlign: 'center' }}>課題</div>
-                                {slide.leftColumn?.map((item, idx) => (
-                                    <p key={idx} style={{ fontSize: '0.6rem', color: '#333', marginBottom: '0.15rem' }}>• {item}</p>
-                                ))}
-                            </div>
-                            <div style={{ width: '2px', background: '#000' }} />
-                            <div style={{ flex: 1 }}>
-                                <div style={{ fontSize: '0.65rem', fontWeight: '600', color: '#000', marginBottom: '0.25rem', textAlign: 'center' }}>解決策</div>
-                                {slide.rightColumn?.map((item, idx) => (
-                                    <p key={idx} style={{ fontSize: '0.6rem', color: '#000', marginBottom: '0.15rem' }}>• {item}</p>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
-                );
-
-            case 'timeline':
-                return (
-                    <div style={baseStyle}>
-                        <h3 style={{ fontSize: '1.1rem', fontWeight: '700', marginBottom: '0.75rem', color: '#000', textAlign: 'center' }}>
-                            {slide.title}
-                        </h3>
-                        <div style={{ flex: 1 }}>
-                            {slide.timelineItems?.map((item, idx) => (
-                                <div key={idx} style={{ display: 'flex', alignItems: 'center', marginBottom: '0.5rem' }}>
-                                    <div style={{ fontSize: '1rem', fontWeight: '700', color: '#000', width: '3rem', textAlign: 'right', marginRight: '0.5rem' }}>{item.year}</div>
-                                    <div style={{ width: '2px', height: '1rem', background: '#eee', marginRight: '0.5rem' }} />
-                                    <div style={{ fontSize: '0.7rem', color: '#333' }}>{item.description}</div>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                );
-
-            // Phase 2 レイアウト
-            case 'network-diagram':
-                return (
-                    <div style={baseStyle}>
-                        <h3 style={{ fontSize: '1.1rem', fontWeight: '700', marginBottom: '0.5rem', color: '#000', textAlign: 'center' }}>
-                            {slide.title}
-                        </h3>
-                        <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', position: 'relative' }}>
-                            <svg width="200" height="150" viewBox="0 0 200 150">
-                                {/* エッジ */}
-                                {slide.networkEdges?.map((edge, idx) => {
-                                    const nodes = slide.networkNodes || [];
-                                    const fromIdx = nodes.findIndex(n => n.id === edge.from);
-                                    const toIdx = nodes.findIndex(n => n.id === edge.to);
-                                    if (fromIdx === -1 || toIdx === -1) return null;
-                                    const fromAngle = (2 * Math.PI * fromIdx) / nodes.length - Math.PI / 2;
-                                    const toAngle = (2 * Math.PI * toIdx) / nodes.length - Math.PI / 2;
-                                    const cx = 100, cy = 75, r = 50;
-                                    return (
-                                        <line
-                                            key={idx}
-                                            x1={cx + r * Math.cos(fromAngle)}
-                                            y1={cy + r * Math.sin(fromAngle)}
-                                            x2={cx + r * Math.cos(toAngle)}
-                                            y2={cy + r * Math.sin(toAngle)}
-                                            stroke="#ccc"
-                                            strokeWidth="1"
-                                        />
-                                    );
-                                })}
-                                {/* ノード */}
-                                {slide.networkNodes?.map((node, idx) => {
-                                    const angle = (2 * Math.PI * idx) / (slide.networkNodes?.length || 1) - Math.PI / 2;
-                                    const cx = 100, cy = 75, r = 50;
-                                    const x = cx + r * Math.cos(angle);
-                                    const y = cy + r * Math.sin(angle);
-                                    return (
-                                        <g key={node.id}>
-                                            <circle cx={x} cy={y} r="20" fill="white" stroke="#000" strokeWidth="1.5" />
-                                            <text x={x} y={y + 4} textAnchor="middle" fontSize="8" fontWeight="bold">{node.label}</text>
-                                        </g>
-                                    );
-                                })}
-                            </svg>
-                        </div>
-                    </div>
-                );
-
-            case 'bubble-chart':
-                return (
-                    <div style={baseStyle}>
-                        <h3 style={{ fontSize: '1.1rem', fontWeight: '700', marginBottom: '0.5rem', color: '#000', textAlign: 'center' }}>
-                            {slide.title}
-                        </h3>
-                        <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', position: 'relative' }}>
-                            <svg width="200" height="150" viewBox="0 0 200 150">
-                                {slide.bubbles?.map((bubble, idx) => {
-                                    const sizeMap = { large: 60, medium: 45, small: 30 };
-                                    const r = sizeMap[bubble.size];
-                                    const cx = 100 + (idx - (slide.bubbles?.length || 1) / 2) * 20;
-                                    const cy = 75;
-                                    return (
-                                        <g key={idx}>
-                                            <circle cx={cx} cy={cy} r={r} fill="white" stroke="#000" strokeWidth="1.5" opacity="0.8" />
-                                            <text x={cx} y={cy + 4} textAnchor="middle" fontSize="8" fontWeight="bold">{bubble.label}</text>
-                                        </g>
-                                    );
-                                })}
-                            </svg>
-                        </div>
-                    </div>
-                );
-
-            case 'arrow-steps':
-                return (
-                    <div style={baseStyle}>
-                        <h3 style={{ fontSize: '1.1rem', fontWeight: '700', marginBottom: '0.75rem', color: '#000', textAlign: 'center' }}>
-                            {slide.title}
-                        </h3>
-                        <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                            {slide.arrowSteps?.map((step, idx) => (
-                                <div
-                                    key={idx}
-                                    style={{
-                                        flex: 1,
-                                        background: idx % 2 === 0 ? '#000' : '#eee',
-                                        color: idx % 2 === 0 ? '#fff' : '#000',
-                                        padding: '0.5rem',
-                                        textAlign: 'center',
-                                        clipPath: idx < (slide.arrowSteps?.length || 1) - 1
-                                            ? 'polygon(0 0, 85% 0, 100% 50%, 85% 100%, 0 100%, 15% 50%)'
-                                            : 'polygon(0 0, 100% 0, 100% 100%, 0 100%, 15% 50%)',
-                                    }}
-                                >
-                                    <div style={{ fontSize: '0.6rem', fontWeight: '600' }}>{step.label}</div>
-                                    {step.description && (
-                                        <div style={{ fontSize: '0.5rem', opacity: 0.8 }}>{step.description}</div>
-                                    )}
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                );
-
             case 'formula-flow':
                 return (
                     <div style={baseStyle}>
-                        <h3 style={{ fontSize: '1.1rem', fontWeight: '700', marginBottom: '0.75rem', color: '#000', textAlign: 'center' }}>
-                            {slide.title}
-                        </h3>
+                        <h3 style={{ fontSize: '1.1rem', fontWeight: '700', marginBottom: '0.75rem', color: '#000', textAlign: 'center' }}>{slide.title}</h3>
                         <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '0.5rem' }}>
                             {slide.formula && (
                                 <>
@@ -362,20 +249,13 @@ function Preview() {
                         </div>
                     </div>
                 );
-
-            case 'bullet-points':
             default:
                 return (
                     <div style={baseStyle}>
-                        <h3 style={{ fontSize: '1.25rem', fontWeight: '700', marginBottom: '0.75rem', color: '#000' }}>
-                            {slide.title}
-                        </h3>
+                        <h3 style={{ fontSize: '1.25rem', fontWeight: '700', marginBottom: '0.75rem', color: '#000' }}>{slide.title}</h3>
                         <ul style={{ listStyle: 'none', padding: 0 }}>
                             {slide.content?.map((item, idx) => (
-                                <li key={idx} style={{ fontSize: '0.85rem', color: '#333', marginBottom: '0.5rem', display: 'flex', alignItems: 'flex-start' }}>
-                                    <span style={{ marginRight: '0.5rem' }}>•</span>
-                                    {item}
-                                </li>
+                                <li key={idx} style={{ fontSize: '0.85rem', color: '#333', marginBottom: '0.5rem' }}>• {item}</li>
                             ))}
                         </ul>
                     </div>
@@ -395,63 +275,39 @@ function Preview() {
     }
 
     const currentSlide = slides[selectedSlide];
+    const groupedCharacters = characters.reduce((acc, char) => {
+        if (!acc[char.name]) acc[char.name] = [];
+        acc[char.name].push(char);
+        return acc;
+    }, {} as Record<string, VoicevoxCharacter[]>);
 
     return (
         <div style={{ minHeight: '100vh', padding: '2rem' }}>
-            {/* ステップインジケーター */}
             <div className="steps">
-                <div className="step completed">
-                    <span className="step-number">✓</span>
-                    <span>アップロード</span>
-                </div>
-                <div className="step completed">
-                    <span className="step-number">✓</span>
-                    <span>確認・編集</span>
-                </div>
-                <div className="step active">
-                    <span className="step-number">3</span>
-                    <span>プレビュー</span>
-                </div>
+                <div className="step completed"><span className="step-number">✓</span><span>アップロード</span></div>
+                <div className="step completed"><span className="step-number">✓</span><span>確認・編集</span></div>
+                <div className="step active"><span className="step-number">3</span><span>プレビュー</span></div>
             </div>
 
             <div className="container">
                 {error && (
-                    <div style={{
-                        marginBottom: '1rem',
-                        padding: '0.75rem 1rem',
-                        background: 'rgba(239, 68, 68, 0.1)',
-                        border: '1px solid rgba(239, 68, 68, 0.3)',
-                        borderRadius: '0.5rem',
-                        color: '#ef4444',
-                        fontSize: '0.875rem',
-                    }}>
+                    <div style={{ marginBottom: '1rem', padding: '0.75rem 1rem', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '0.5rem', color: '#ef4444', fontSize: '0.875rem' }}>
                         ⚠️ {error}
                     </div>
                 )}
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: '1.5rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: '1.5rem' }}>
                     {/* メインプレビュー */}
                     <div className="card fade-in">
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                             <h2>📊 スライドプレビュー</h2>
                             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                                 {currentSlide && (
-                                    <span style={{
-                                        background: 'rgba(99, 102, 241, 0.2)',
-                                        padding: '0.25rem 0.5rem',
-                                        borderRadius: '0.25rem',
-                                        fontSize: '0.75rem',
-                                        color: '#a5b4fc',
-                                    }}>
+                                    <span style={{ background: 'rgba(99, 102, 241, 0.2)', padding: '0.25rem 0.5rem', borderRadius: '0.25rem', fontSize: '0.75rem', color: '#a5b4fc' }}>
                                         {layoutNames[currentSlide.layoutType] || currentSlide.layoutType}
                                     </span>
                                 )}
-                                <span style={{
-                                    background: '#334155',
-                                    padding: '0.25rem 0.75rem',
-                                    borderRadius: '1rem',
-                                    fontSize: '0.875rem',
-                                }}>
+                                <span style={{ background: '#334155', padding: '0.25rem 0.75rem', borderRadius: '1rem', fontSize: '0.875rem' }}>
                                     {selectedSlide + 1} / {slides.length}
                                 </span>
                             </div>
@@ -460,50 +316,87 @@ function Preview() {
                         {currentSlide && renderSlidePreview(currentSlide)}
 
                         {currentSlide && (
-                            <div style={{
-                                marginTop: '1rem',
-                                padding: '0.75rem 1rem',
-                                background: '#334155',
-                                borderRadius: '0.5rem',
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                                fontSize: '0.875rem',
-                            }}>
+                            <div style={{ marginTop: '1rem', padding: '0.75rem 1rem', background: '#334155', borderRadius: '0.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.875rem' }}>
                                 <span>⏱️ {formatTime(currentSlide.startTime)} - {formatTime(currentSlide.endTime)}</span>
                                 <span style={{ color: '#94a3b8' }}>表示時間: {currentSlide.duration}秒</span>
                             </div>
                         )}
 
                         <div style={{ display: 'flex', justifyContent: 'center', gap: '1rem', marginTop: '1rem' }}>
-                            <button
-                                className="btn btn-secondary"
-                                onClick={() => setSelectedSlide(prev => Math.max(0, prev - 1))}
-                                disabled={selectedSlide === 0}
-                            >
-                                ← 前へ
-                            </button>
-                            <button
-                                className="btn btn-secondary"
-                                onClick={() => setSelectedSlide(prev => Math.min(slides.length - 1, prev + 1))}
-                                disabled={selectedSlide === slides.length - 1}
-                            >
-                                次へ →
-                            </button>
+                            <button className="btn btn-secondary" onClick={() => setSelectedSlide(prev => Math.max(0, prev - 1))} disabled={selectedSlide === 0}>← 前へ</button>
+                            <button className="btn btn-secondary" onClick={() => setSelectedSlide(prev => Math.min(slides.length - 1, prev + 1))} disabled={selectedSlide === slides.length - 1}>次へ →</button>
                         </div>
                     </div>
 
                     {/* サイドバー */}
                     <div>
+                        {/* VOICEVOX セクション */}
+                        <div className="card" style={{ marginBottom: '1rem' }}>
+                            <h3 style={{ marginBottom: '0.75rem', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                🎤 音声読み上げ
+                                <span style={{
+                                    fontSize: '0.625rem',
+                                    padding: '0.125rem 0.375rem',
+                                    borderRadius: '0.25rem',
+                                    background: voicevoxAvailable ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)',
+                                    color: voicevoxAvailable ? '#22c55e' : '#ef4444',
+                                }}>
+                                    {voicevoxAvailable ? '接続中' : '未接続'}
+                                </span>
+                            </h3>
+
+                            {voicevoxAvailable ? (
+                                <>
+                                    <select
+                                        value={selectedCharacter}
+                                        onChange={(e) => setSelectedCharacter(e.target.value)}
+                                        style={{
+                                            width: '100%',
+                                            padding: '0.5rem',
+                                            marginBottom: '0.75rem',
+                                            background: '#1e293b',
+                                            border: '1px solid #334155',
+                                            borderRadius: '0.375rem',
+                                            color: 'white',
+                                            fontSize: '0.875rem',
+                                        }}
+                                    >
+                                        {Object.entries(groupedCharacters).map(([name, chars]) => (
+                                            <optgroup key={name} label={name}>
+                                                {chars.map((char) => (
+                                                    <option key={char.key} value={char.key}>
+                                                        {char.name} ({char.style})
+                                                    </option>
+                                                ))}
+                                            </optgroup>
+                                        ))}
+                                    </select>
+
+                                    <button
+                                        className="btn btn-secondary"
+                                        onClick={handleSynthesize}
+                                        disabled={isSynthesizing}
+                                        style={{ width: '100%', marginBottom: '0.5rem' }}
+                                    >
+                                        {isSynthesizing ? '合成中...' : '🔊 このスライドを読み上げ'}
+                                    </button>
+
+                                    {audioUrl && (
+                                        <audio controls src={audioUrl} style={{ width: '100%', marginTop: '0.5rem' }} autoPlay />
+                                    )}
+                                </>
+                            ) : (
+                                <p style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                                    VOICEVOXを起動してください。<br />
+                                    ずんだもんなどの音声で読み上げできます。
+                                </p>
+                            )}
+                        </div>
+
+                        {/* スライド一覧 */}
                         <div className="card" style={{ marginBottom: '1rem' }}>
                             <h3 style={{ marginBottom: '1rem', fontSize: '1rem' }}>スライド一覧</h3>
-                            <div style={{
-                                maxHeight: '400px',
-                                overflowY: 'auto',
-                                display: 'flex',
-                                flexDirection: 'column',
-                                gap: '0.5rem',
-                            }}>
+                            <div style={{ maxHeight: '300px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                                 {slides.map((slide, index) => (
                                     <div
                                         key={slide.id}
@@ -518,57 +411,22 @@ function Preview() {
                                         }}
                                     >
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
-                                            <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                                                {index + 1}. {formatTime(slide.startTime)}
-                                            </span>
-                                            <span style={{
-                                                fontSize: '0.625rem',
-                                                background: 'rgba(255,255,255,0.1)',
-                                                padding: '0.125rem 0.375rem',
-                                                borderRadius: '0.25rem',
-                                                color: '#94a3b8',
-                                            }}>
+                                            <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{index + 1}. {formatTime(slide.startTime)}</span>
+                                            <span style={{ fontSize: '0.625rem', background: 'rgba(255,255,255,0.1)', padding: '0.125rem 0.375rem', borderRadius: '0.25rem', color: '#94a3b8' }}>
                                                 {layoutNames[slide.layoutType] || slide.layoutType}
                                             </span>
                                         </div>
-                                        <div style={{
-                                            fontSize: '0.875rem',
-                                            whiteSpace: 'nowrap',
-                                            overflow: 'hidden',
-                                            textOverflow: 'ellipsis',
-                                        }}>
-                                            {slide.title}
-                                        </div>
+                                        <div style={{ fontSize: '0.875rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{slide.title}</div>
                                     </div>
                                 ))}
                             </div>
                         </div>
 
-                        <button
-                            className="btn btn-primary"
-                            onClick={handleDownload}
-                            disabled={isDownloading}
-                            style={{ width: '100%' }}
-                        >
-                            {isDownloading ? (
-                                <>
-                                    <span className="spinner" style={{ width: '1rem', height: '1rem' }} />
-                                    準備中...
-                                </>
-                            ) : (
-                                '📥 PPTXをダウンロード'
-                            )}
+                        <button className="btn btn-primary" onClick={handleDownload} disabled={isDownloading} style={{ width: '100%' }}>
+                            {isDownloading ? '準備中...' : '📥 PPTXをダウンロード'}
                         </button>
 
-                        <p style={{ marginTop: '0.75rem', fontSize: '0.75rem', color: '#64748b', textAlign: 'center' }}>
-                            ※ Phase 2 レイアウト対応版
-                        </p>
-
-                        <button
-                            className="btn btn-secondary"
-                            onClick={() => navigate('/')}
-                            style={{ width: '100%', marginTop: '1rem' }}
-                        >
+                        <button className="btn btn-secondary" onClick={() => navigate('/')} style={{ width: '100%', marginTop: '1rem' }}>
                             🏠 ホームに戻る
                         </button>
                     </div>
