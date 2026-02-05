@@ -1,3 +1,4 @@
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import OpenAI from 'openai';
 import { nanoid } from 'nanoid';
 
@@ -12,83 +13,62 @@ interface Segment {
 // レイアウトタイプの定義（Phase 1 + Phase 2）
 type LayoutType =
     // Phase 1
-    | 'title'           // タイトル・タイポグラフィ
-    | 'data-emphasis'   // テキスト＋データ強調
-    | 'three-columns'   // 3ステップ・カラム
-    | 'two-columns'     // 2カラム（課題 vs 解決）
-    | 'timeline'        // 年表リスト
-    | 'bullet-points'   // シンプル箇条書き
+    | 'title'
+    | 'data-emphasis'
+    | 'three-columns'
+    | 'two-columns'
+    | 'timeline'
+    | 'bullet-points'
     // Phase 2
-    | 'network-diagram' // ネットワーク図解
-    | 'bubble-chart'    // バブルチャート / ベン図
-    | 'arrow-steps'     // 矢印ステップ
-    | 'formula-flow';   // 数式・フロー図
+    | 'network-diagram'
+    | 'bubble-chart'
+    | 'arrow-steps'
+    | 'formula-flow';
 
 interface Slide {
     id: string;
     layoutType: LayoutType;
     title: string;
     content: string[];
-    emphasisNumber?: string;      // データ強調用の数字
-    emphasisLabel?: string;       // 数字のラベル
-    leftColumn?: string[];        // 2カラム左側
-    rightColumn?: string[];       // 2カラム右側
-    steps?: Array<{               // 3ステップ用
-        number: string;
-        title: string;
-        description: string;
-    }>;
-    timelineItems?: Array<{       // タイムライン用
-        year: string;
-        description: string;
-    }>;
-    // Phase 2 追加フィールド
-    networkNodes?: Array<{        // ネットワーク図解用
-        id: string;
-        label: string;
-    }>;
-    networkEdges?: Array<{        // ネットワーク図解用
-        from: string;
-        to: string;
-    }>;
-    bubbles?: Array<{             // バブルチャート用
-        label: string;
-        size: 'small' | 'medium' | 'large';
-        overlap?: string[];       // 重なる他のバブルのラベル
-    }>;
-    arrowSteps?: Array<{          // 矢印ステップ用
-        label: string;
-        description?: string;
-    }>;
-    formula?: {                   // 数式・フロー用
-        left: string;
-        operator: string;         // ×, +, →, =
-        right: string;
-        result: string;
-    };
-    generateImage?: boolean;      // DALL-E画像生成フラグ
-    imagePrompt?: string;         // 画像生成用プロンプト
+    emphasisNumber?: string;
+    emphasisLabel?: string;
+    leftColumn?: string[];
+    rightColumn?: string[];
+    steps?: Array<{ number: string; title: string; description: string }>;
+    timelineItems?: Array<{ year: string; description: string }>;
+    networkNodes?: Array<{ id: string; label: string }>;
+    networkEdges?: Array<{ from: string; to: string }>;
+    bubbles?: Array<{ label: string; size: 'small' | 'medium' | 'large'; overlap?: string[] }>;
+    arrowSteps?: Array<{ label: string; description?: string }>;
+    formula?: { left: string; operator: string; right: string; result: string };
+    generateImage?: boolean;
+    imagePrompt?: string;
     notes: string;
     startTime: number;
     endTime: number;
     duration: number;
 }
 
+// 環境変数チェック
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const AZURE_OPENAI_API_KEY = process.env.AZURE_OPENAI_API_KEY;
+const AZURE_OPENAI_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT;
+
 // 開発モード判定
-const isDevelopmentMode = !process.env.AZURE_OPENAI_API_KEY || !process.env.AZURE_OPENAI_ENDPOINT;
+const isDevelopmentMode = !GEMINI_API_KEY && (!AZURE_OPENAI_API_KEY || !AZURE_OPENAI_ENDPOINT);
 
 // Azure OpenAI GPT クライアント設定
-let client: OpenAI | null = null;
-if (!isDevelopmentMode) {
-    client = new OpenAI({
-        apiKey: process.env.AZURE_OPENAI_API_KEY,
-        baseURL: `${process.env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${process.env.AZURE_OPENAI_DEPLOYMENT_NAME}`,
+let gptClient: OpenAI | null = null;
+if (AZURE_OPENAI_API_KEY && AZURE_OPENAI_ENDPOINT && process.env.AZURE_OPENAI_DEPLOYMENT_NAME) {
+    gptClient = new OpenAI({
+        apiKey: AZURE_OPENAI_API_KEY,
+        baseURL: `${AZURE_OPENAI_ENDPOINT}/openai/deployments/${process.env.AZURE_OPENAI_DEPLOYMENT_NAME}`,
         defaultQuery: { 'api-version': '2024-02-15-preview' },
-        defaultHeaders: { 'api-key': process.env.AZURE_OPENAI_API_KEY },
+        defaultHeaders: { 'api-key': AZURE_OPENAI_API_KEY },
     });
 }
 
-// デザイン仕様プロンプト（Phase 2対応）
+// デザイン仕様プロンプト
 const DESIGN_SYSTEM_PROMPT = `あなたはプロフェッショナルなプレゼンテーションデザイナーです。
 音声認識結果から、洗練されたミニマルデザインのスライドを作成してください。
 
@@ -102,7 +82,7 @@ const DESIGN_SYSTEM_PROMPT = `あなたはプロフェッショナルなプレ�
 
 ## 使用可能なレイアウトタイプ
 
-### 基本レイアウト（Phase 1）
+### 基本レイアウト
 1. "title" - タイトルスライド。大胆なタイトルのみ。
 2. "data-emphasis" - 左にテキスト、右に巨大な数字。統計やデータ強調に。
 3. "three-columns" - 3つのステップやポイント。プロセス説明に。
@@ -110,21 +90,19 @@ const DESIGN_SYSTEM_PROMPT = `あなたはプロフェッショナルなプレ�
 5. "timeline" - 年表形式。歴史や経緯に。
 6. "bullet-points" - シンプルな箇条書き。一般説明に。
 
-### 高度なレイアウト（Phase 2）
-7. "network-diagram" - ネットワーク図解。関係性や接続を示す。ノードとエッジで構成。
-8. "bubble-chart" - バブルチャート/ベン図。重なり合う概念や集合を示す。
-9. "arrow-steps" - 矢印ステップ。線形プロセスや流れを示す。
-10. "formula-flow" - 数式・フロー図。「A × B = C」形式の関係性を示す。
+### 高度なレイアウト
+7. "network-diagram" - ネットワーク図解。関係性や接続を示す。
+8. "bubble-chart" - バブルチャート/ベン図。重なり合う概念を示す。
+9. "arrow-steps" - 矢印ステップ。線形プロセスや流れ。
+10. "formula-flow" - 数式・フロー図。「A × B = C」形式の関係性。
 
 ## 出力形式
-JSON形式で以下の構造を返してください：
+JSON形式で以下の構造を返してください（JSONのみ、他のテキストは不要）:
 {
   "slides": [
     {
       "layoutType": "レイアウトタイプ",
       "title": "スライドタイトル",
-      
-      // 基本レイアウト用
       "content": ["箇条書き1", "箇条書き2"],
       "emphasisNumber": "85%",
       "emphasisLabel": "成功率",
@@ -132,30 +110,17 @@ JSON形式で以下の構造を返してください：
       "rightColumn": ["右項目"],
       "steps": [{"number": "01", "title": "名前", "description": "説明"}],
       "timelineItems": [{"year": "2024", "description": "出来事"}],
-      
-      // Phase 2 レイアウト用
-      "networkNodes": [{"id": "a", "label": "ノードA"}, {"id": "b", "label": "ノードB"}],
+      "networkNodes": [{"id": "a", "label": "ノードA"}],
       "networkEdges": [{"from": "a", "to": "b"}],
-      "bubbles": [{"label": "概念A", "size": "large"}, {"label": "概念B", "size": "medium", "overlap": ["概念A"]}],
-      "arrowSteps": [{"label": "ステップ1"}, {"label": "ステップ2"}, {"label": "ステップ3"}],
+      "bubbles": [{"label": "概念A", "size": "large"}],
+      "arrowSteps": [{"label": "ステップ1"}],
       "formula": {"left": "データ", "operator": "×", "right": "AI", "result": "インサイト"},
-      
       "notes": "話者用メモ",
       "startTime": 0,
       "endTime": 15
     }
   ]
-}
-
-## レイアウト選択ガイド
-- 関係性・接続 → network-diagram
-- 重なり・集合 → bubble-chart
-- 線形プロセス → arrow-steps（大きな矢印で3〜5ステップ）
-- 数式的関係 → formula-flow（A × B = C 形式）
-- 数字・データ → data-emphasis
-- 比較 → two-columns
-- 手順 → three-columns
-- 歴史 → timeline`;
+}`;
 
 /**
  * テキストセグメントからスライド構成を生成
@@ -165,12 +130,31 @@ export async function generateSlides(segments: Segment[]): Promise<Slide[]> {
     if (isDevelopmentMode) {
         console.log('⚠️ 開発モード: モックスライド生成を使用');
         await new Promise((resolve) => setTimeout(resolve, 2000));
-
         return getMockSlides();
     }
 
+    // Gemini APIを優先使用
+    if (GEMINI_API_KEY) {
+        return generateWithGemini(segments);
+    }
+
+    // フォールバック: Azure OpenAI GPT
+    if (gptClient) {
+        return generateWithGPT(segments);
+    }
+
+    return getMockSlides();
+}
+
+/**
+ * Geminiでスライド生成
+ */
+async function generateWithGemini(segments: Segment[]): Promise<Slide[]> {
     try {
-        console.log('📊 スライド生成を開始');
+        console.log('📊 Geminiスライド生成を開始');
+
+        const genAI = new GoogleGenerativeAI(GEMINI_API_KEY!);
+        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
         const segmentsText = segments
             .map((seg) => {
@@ -179,20 +163,75 @@ export async function generateSlides(segments: Segment[]): Promise<Slide[]> {
             })
             .join('\n');
 
-        const response = await client!.chat.completions.create({
+        const prompt = `${DESIGN_SYSTEM_PROMPT}
+
+以下の音声認識結果から、洗練されたミニマルデザインのスライドを作成してください。
+内容に応じて最適なレイアウトを選択してください。
+
+${segmentsText}`;
+
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        const text = response.text();
+
+        // JSON部分を抽出
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) {
+            console.log('⚠️ JSON形式の応答が取得できませんでした');
+            return getMockSlides();
+        }
+
+        const parsed = JSON.parse(jsonMatch[0]);
+        const slides: Slide[] = (parsed.slides || []).map((slide: any) => ({
+            id: nanoid(8),
+            layoutType: slide.layoutType || 'bullet-points',
+            title: slide.title || 'タイトル',
+            content: slide.content || [],
+            emphasisNumber: slide.emphasisNumber,
+            emphasisLabel: slide.emphasisLabel,
+            leftColumn: slide.leftColumn,
+            rightColumn: slide.rightColumn,
+            steps: slide.steps,
+            timelineItems: slide.timelineItems,
+            networkNodes: slide.networkNodes,
+            networkEdges: slide.networkEdges,
+            bubbles: slide.bubbles,
+            arrowSteps: slide.arrowSteps,
+            formula: slide.formula,
+            notes: slide.notes || '',
+            startTime: slide.startTime || 0,
+            endTime: slide.endTime || 0,
+            duration: Math.max(1, (slide.endTime || 0) - (slide.startTime || 0)),
+        }));
+
+        console.log('✅ Geminiスライド生成完了:', slides.length, 'スライド');
+        return slides;
+
+    } catch (error) {
+        console.error('❌ Geminiスライド生成エラー:', error);
+        return getMockSlides();
+    }
+}
+
+/**
+ * Azure OpenAI GPTでスライド生成
+ */
+async function generateWithGPT(segments: Segment[]): Promise<Slide[]> {
+    try {
+        console.log('📊 GPTスライド生成を開始');
+
+        const segmentsText = segments
+            .map((seg) => {
+                const text = seg.correctedText || seg.text;
+                return `[${seg.start.toFixed(1)}秒-${seg.end.toFixed(1)}秒] ${text}`;
+            })
+            .join('\n');
+
+        const response = await gptClient!.chat.completions.create({
             model: 'gpt-4',
             messages: [
-                {
-                    role: 'system',
-                    content: DESIGN_SYSTEM_PROMPT,
-                },
-                {
-                    role: 'user',
-                    content: `以下の音声認識結果から、洗練されたミニマルデザインのスライドを作成してください。
-内容に応じて、Phase 2の高度なレイアウト（network-diagram, bubble-chart, arrow-steps, formula-flow）も積極的に使用してください。
-
-${segmentsText}`,
-                },
+                { role: 'system', content: DESIGN_SYSTEM_PROMPT },
+                { role: 'user', content: `以下の音声認識結果から、洗練されたミニマルデザインのスライドを作成してください：\n\n${segmentsText}` },
             ],
             temperature: 0.5,
             max_tokens: 4000,
@@ -201,8 +240,6 @@ ${segmentsText}`,
 
         const content = response.choices[0]?.message?.content || '{"slides":[]}';
         const result = JSON.parse(content);
-
-        console.log('✅ スライド生成完了:', result.slides?.length, 'スライド');
 
         const slides: Slide[] = (result.slides || []).map((slide: any) => ({
             id: nanoid(8),
@@ -215,33 +252,31 @@ ${segmentsText}`,
             rightColumn: slide.rightColumn,
             steps: slide.steps,
             timelineItems: slide.timelineItems,
-            // Phase 2
             networkNodes: slide.networkNodes,
             networkEdges: slide.networkEdges,
             bubbles: slide.bubbles,
             arrowSteps: slide.arrowSteps,
             formula: slide.formula,
-            generateImage: slide.generateImage,
-            imagePrompt: slide.imagePrompt,
             notes: slide.notes || '',
             startTime: slide.startTime || 0,
             endTime: slide.endTime || 0,
             duration: Math.max(1, (slide.endTime || 0) - (slide.startTime || 0)),
         }));
 
+        console.log('✅ GPTスライド生成完了:', slides.length, 'スライド');
         return slides;
+
     } catch (error) {
-        console.error('❌ スライド生成エラー:', error);
+        console.error('❌ GPTスライド生成エラー:', error);
         return getMockSlides();
     }
 }
 
 /**
- * 開発用モックスライド（Phase 1 + Phase 2のレイアウトをデモ）
+ * 開発用モックスライド
  */
 function getMockSlides(): Slide[] {
     return [
-        // Phase 1 レイアウト
         {
             id: nanoid(8),
             layoutType: 'title',
@@ -264,90 +299,19 @@ function getMockSlides(): Slide[] {
             endTime: 30,
             duration: 15,
         },
-        // Phase 2 レイアウト
-        {
-            id: nanoid(8),
-            layoutType: 'network-diagram',
-            title: 'AI技術のエコシステム',
-            content: [],
-            networkNodes: [
-                { id: 'ml', label: '機械学習' },
-                { id: 'dl', label: '深層学習' },
-                { id: 'nlp', label: '自然言語処理' },
-                { id: 'cv', label: '画像認識' },
-                { id: 'ai', label: 'AI' },
-            ],
-            networkEdges: [
-                { from: 'ai', to: 'ml' },
-                { from: 'ml', to: 'dl' },
-                { from: 'dl', to: 'nlp' },
-                { from: 'dl', to: 'cv' },
-            ],
-            notes: 'ネットワーク図解レイアウト',
-            startTime: 30,
-            endTime: 45,
-            duration: 15,
-        },
-        {
-            id: nanoid(8),
-            layoutType: 'bubble-chart',
-            title: 'AI・ML・DLの関係',
-            content: [],
-            bubbles: [
-                { label: '人工知能', size: 'large' },
-                { label: '機械学習', size: 'medium', overlap: ['人工知能'] },
-                { label: '深層学習', size: 'small', overlap: ['機械学習'] },
-            ],
-            notes: 'バブルチャート/ベン図レイアウト',
-            startTime: 45,
-            endTime: 60,
-            duration: 15,
-        },
-        {
-            id: nanoid(8),
-            layoutType: 'arrow-steps',
-            title: 'データ処理パイプライン',
-            content: [],
-            arrowSteps: [
-                { label: 'データ収集', description: '様々なソースから' },
-                { label: '前処理', description: 'クリーニング・変換' },
-                { label: 'モデル学習', description: 'パターン抽出' },
-                { label: '予測', description: '新データに適用' },
-            ],
-            notes: '矢印ステップレイアウト',
-            startTime: 60,
-            endTime: 75,
-            duration: 15,
-        },
-        {
-            id: nanoid(8),
-            layoutType: 'formula-flow',
-            title: 'AI活用の公式',
-            content: [],
-            formula: {
-                left: 'データ',
-                operator: '×',
-                right: 'AI',
-                result: 'ビジネス価値',
-            },
-            notes: '数式・フロー図レイアウト',
-            startTime: 75,
-            endTime: 90,
-            duration: 15,
-        },
         {
             id: nanoid(8),
             layoutType: 'three-columns',
-            title: '導入ステップ',
+            title: 'AIの3つの柱',
             content: [],
             steps: [
-                { number: '01', title: '課題特定', description: '解決すべき問題を明確に' },
-                { number: '02', title: 'PoC実施', description: '小規模で効果検証' },
-                { number: '03', title: '本格展開', description: '全社への展開' },
+                { number: '01', title: '機械学習', description: 'データから学習' },
+                { number: '02', title: '深層学習', description: 'ニューラルネットワーク' },
+                { number: '03', title: '生成AI', description: 'コンテンツ生成' },
             ],
             notes: '3ステップレイアウト',
-            startTime: 90,
-            endTime: 105,
+            startTime: 30,
+            endTime: 45,
             duration: 15,
         },
         {
@@ -355,13 +319,13 @@ function getMockSlides(): Slide[] {
             layoutType: 'bullet-points',
             title: 'まとめ',
             content: [
-                'AIは多様な技術の集合体',
-                '適切なレイアウトで情報を伝える',
-                '視覚的表現が理解を促進する',
+                'AIは私たちの生活を変革している',
+                '適切な活用が成功の鍵',
+                '継続的な学習が重要',
             ],
             notes: 'クロージング',
-            startTime: 105,
-            endTime: 120,
+            startTime: 45,
+            endTime: 60,
             duration: 15,
         },
     ];

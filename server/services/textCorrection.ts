@@ -1,57 +1,96 @@
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import OpenAI from 'openai';
 
+// 環境変数チェック
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const AZURE_OPENAI_API_KEY = process.env.AZURE_OPENAI_API_KEY;
+const AZURE_OPENAI_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT;
+
 // 開発モード判定
-const isDevelopmentMode = !process.env.AZURE_OPENAI_API_KEY || !process.env.AZURE_OPENAI_ENDPOINT;
+const isDevelopmentMode = !GEMINI_API_KEY && (!AZURE_OPENAI_API_KEY || !AZURE_OPENAI_ENDPOINT);
 
 // Azure OpenAI GPT クライアント設定
-let client: OpenAI | null = null;
-if (!isDevelopmentMode) {
-    client = new OpenAI({
-        apiKey: process.env.AZURE_OPENAI_API_KEY,
-        baseURL: `${process.env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${process.env.AZURE_OPENAI_DEPLOYMENT_NAME}`,
+let gptClient: OpenAI | null = null;
+if (AZURE_OPENAI_API_KEY && AZURE_OPENAI_ENDPOINT && process.env.AZURE_OPENAI_DEPLOYMENT_NAME) {
+    gptClient = new OpenAI({
+        apiKey: AZURE_OPENAI_API_KEY,
+        baseURL: `${AZURE_OPENAI_ENDPOINT}/openai/deployments/${process.env.AZURE_OPENAI_DEPLOYMENT_NAME}`,
         defaultQuery: { 'api-version': '2024-02-15-preview' },
-        defaultHeaders: { 'api-key': process.env.AZURE_OPENAI_API_KEY },
+        defaultHeaders: { 'api-key': AZURE_OPENAI_API_KEY },
     });
 }
 
 /**
- * テキストの誤字脱字を修正
+ * テキストの誤字脱字を修正（Gemini優先）
  */
 export async function correctText(text: string): Promise<string> {
-    // 開発モード: 簡易修正（デモ用）
+    // 開発モード
     if (isDevelopmentMode) {
-        console.log('⚠️ 開発モード: 簡易テキスト修正を使用');
+        console.log('⚠️ 開発モード: モック修正を使用');
         await new Promise((resolve) => setTimeout(resolve, 1000));
-        // 簡単な置換ルールでデモ
-        return text
-            .replace(/ですた/g, 'でした')
-            .replace(/きました/g, '記ました')
-            .replace(/  +/g, ' ')
-            .trim();
+        return text;
     }
 
-    try {
-        console.log('✏️ テキスト修正を開始');
+    // Gemini APIを優先使用
+    if (GEMINI_API_KEY) {
+        return correctWithGemini(text);
+    }
 
-        const response = await client!.chat.completions.create({
+    // フォールバック: Azure OpenAI GPT
+    if (gptClient) {
+        return correctWithGPT(text);
+    }
+
+    return text;
+}
+
+/**
+ * Geminiでテキスト修正
+ */
+async function correctWithGemini(text: string): Promise<string> {
+    try {
+        console.log('✏️ Geminiテキスト修正を開始');
+
+        const genAI = new GoogleGenerativeAI(GEMINI_API_KEY!);
+        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+
+        const prompt = `以下のテキストの誤字脱字を修正し、句読点を適切に整えてください。
+意味は変えずに、日本語として自然な文章にしてください。
+修正後のテキストのみを出力してください。
+
+テキスト:
+${text}`;
+
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        const correctedText = response.text().trim();
+
+        console.log('✅ Geminiテキスト修正完了');
+        return correctedText;
+
+    } catch (error) {
+        console.error('❌ Geminiテキスト修正エラー:', error);
+        return text;
+    }
+}
+
+/**
+ * Azure OpenAI GPTでテキスト修正
+ */
+async function correctWithGPT(text: string): Promise<string> {
+    try {
+        console.log('✏️ GPTテキスト修正を開始');
+
+        const response = await gptClient!.chat.completions.create({
             model: 'gpt-4',
             messages: [
                 {
                     role: 'system',
-                    content: `あなたは日本語テキストの校正者です。以下のルールに従ってテキストを修正してください：
-
-1. 誤字脱字を修正する
-2. 句読点を適切に追加する
-3. 文法的な誤りを修正する
-4. 意味は変えない
-5. 各行は独立したセグメントなので、行ごとに修正して同じ行数で返す
-6. 補足説明や注釈は追加しない`,
+                    content: 'あなたは日本語校正の専門家です。与えられたテキストの誤字脱字を修正し、句読点を適切に整えてください。意味は変えないでください。',
                 },
                 {
                     role: 'user',
-                    content: `以下のテキストを修正してください。各行を維持してください：
-
-${text}`,
+                    content: text,
                 },
             ],
             temperature: 0.3,
@@ -59,11 +98,11 @@ ${text}`,
         });
 
         const correctedText = response.choices[0]?.message?.content || text;
-        console.log('✅ テキスト修正完了');
+        console.log('✅ GPTテキスト修正完了');
+        return correctedText;
 
-        return correctedText.trim();
     } catch (error) {
-        console.error('❌ テキスト修正エラー:', error);
+        console.error('❌ GPTテキスト修正エラー:', error);
         return text;
     }
 }
