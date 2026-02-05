@@ -44,7 +44,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({
     storage,
-    limits: { fileSize: 16 * 1024 * 1024 }, // 16MB
+    limits: { fileSize: 64 * 1024 * 1024 }, // 64MB
     fileFilter: (req, file, cb) => {
         if (file.mimetype === 'audio/wav' || file.originalname.endsWith('.wav')) {
             cb(null, true);
