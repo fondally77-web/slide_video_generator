@@ -3,18 +3,24 @@ import fs from 'fs';
 import path from 'path';
 import https from 'https';
 
-// 開発モード判定
-const isDevelopmentMode = !process.env.AZURE_OPENAI_API_KEY || !process.env.AZURE_OPENAI_ENDPOINT;
-
-// Azure OpenAI DALL-E クライアント設定
-let client: OpenAI | null = null;
-if (!isDevelopmentMode && process.env.AZURE_OPENAI_DALLE_DEPLOYMENT_NAME) {
-    client = new OpenAI({
-        apiKey: process.env.AZURE_OPENAI_API_KEY,
-        baseURL: `${process.env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${process.env.AZURE_OPENAI_DALLE_DEPLOYMENT_NAME}`,
-        defaultQuery: { 'api-version': '2024-02-15-preview' },
-        defaultHeaders: { 'api-key': process.env.AZURE_OPENAI_API_KEY },
-    });
+// Azure OpenAI DALL-E クライアント（遅延初期化）
+let dalleClient: OpenAI | null | undefined;
+function getDalleClient(): OpenAI | null {
+    if (dalleClient !== undefined) return dalleClient;
+    const key = process.env.AZURE_OPENAI_API_KEY;
+    const endpoint = process.env.AZURE_OPENAI_ENDPOINT;
+    const deployment = process.env.AZURE_OPENAI_DALLE_DEPLOYMENT_NAME;
+    if (key && endpoint && deployment) {
+        dalleClient = new OpenAI({
+            apiKey: key,
+            baseURL: `${endpoint}/openai/deployments/${deployment}`,
+            defaultQuery: { 'api-version': '2024-02-15-preview' },
+            defaultHeaders: { 'api-key': key },
+        });
+    } else {
+        dalleClient = null;
+    }
+    return dalleClient;
 }
 
 interface ImageGenerationResult {
@@ -32,7 +38,8 @@ export async function generateSlideImage(
     filename: string
 ): Promise<ImageGenerationResult> {
     // 開発モード: プレースホルダー画像を返す
-    if (isDevelopmentMode || !client) {
+    const client = getDalleClient();
+    if (!client) {
         console.log('⚠️ 開発モード: 画像生成をスキップ');
         return {
             success: false,
@@ -157,7 +164,8 @@ export async function generateIconImage(
     outputDir: string,
     filename: string
 ): Promise<ImageGenerationResult> {
-    if (isDevelopmentMode || !client) {
+    const iconClient = getDalleClient();
+    if (!iconClient) {
         return {
             success: false,
             error: '開発モード: DALL-E APIが設定されていません',
@@ -171,7 +179,7 @@ export async function generateIconImage(
       Minimalist, single object, no text, vector-like appearance.
     `.trim();
 
-        const response = await client.images.generate({
+        const response = await iconClient.images.generate({
             model: 'dall-e-3',
             prompt,
             n: 1,

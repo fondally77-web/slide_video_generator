@@ -1,9 +1,9 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import dotenv from 'dotenv';
 import { nanoid } from 'nanoid';
 import { transcribeAudio } from './services/speechToText.js';
 import { correctText } from './services/textCorrection.js';
@@ -15,8 +15,6 @@ import {
     getCharacterList,
     VOICEVOX_CHARACTERS,
 } from './services/voicevoxService.js';
-
-dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -306,4 +304,8 @@ if (!existsSync(outputDir)) mkdirSync(outputDir, { recursive: true });
 // サーバー起動
 app.listen(PORT, () => {
     console.log(`🚀 Server running on http://localhost:${PORT}`);
+    console.log(`📋 API設定状況:`);
+    console.log(`   GEMINI_API_KEY: ${process.env.GEMINI_API_KEY ? '✅ 設定済み' : '❌ 未設定'}`);
+    console.log(`   AZURE_OPENAI_API_KEY: ${process.env.AZURE_OPENAI_API_KEY ? '✅ 設定済み' : '❌ 未設定'}`);
+    console.log(`   AZURE_OPENAI_ENDPOINT: ${process.env.AZURE_OPENAI_ENDPOINT ? '✅ 設定済み' : '❌ 未設定'}`);
 });

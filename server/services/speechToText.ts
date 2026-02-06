@@ -9,29 +9,35 @@ interface Segment {
     text: string;
 }
 
-// 環境変数チェック
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const AZURE_OPENAI_API_KEY = process.env.AZURE_OPENAI_API_KEY;
-const AZURE_OPENAI_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT;
-
-// 開発モード判定（どちらのAPIキーも設定されていない場合）
-const isDevelopmentMode = !GEMINI_API_KEY && (!AZURE_OPENAI_API_KEY || !AZURE_OPENAI_ENDPOINT);
-
-// Azure OpenAI Whisper クライアント設定
-let whisperClient: OpenAI | null = null;
-if (AZURE_OPENAI_API_KEY && AZURE_OPENAI_ENDPOINT && process.env.AZURE_OPENAI_WHISPER_DEPLOYMENT_NAME) {
-    whisperClient = new OpenAI({
-        apiKey: AZURE_OPENAI_API_KEY,
-        baseURL: `${AZURE_OPENAI_ENDPOINT}/openai/deployments/${process.env.AZURE_OPENAI_WHISPER_DEPLOYMENT_NAME}`,
-        defaultQuery: { 'api-version': '2024-02-15-preview' },
-        defaultHeaders: { 'api-key': AZURE_OPENAI_API_KEY },
-    });
+// Azure OpenAI Whisper クライアント（遅延初期化）
+let whisperClient: OpenAI | null | undefined;
+function getWhisperClient(): OpenAI | null {
+    if (whisperClient !== undefined) return whisperClient;
+    const key = process.env.AZURE_OPENAI_API_KEY;
+    const endpoint = process.env.AZURE_OPENAI_ENDPOINT;
+    const deployment = process.env.AZURE_OPENAI_WHISPER_DEPLOYMENT_NAME;
+    if (key && endpoint && deployment) {
+        whisperClient = new OpenAI({
+            apiKey: key,
+            baseURL: `${endpoint}/openai/deployments/${deployment}`,
+            defaultQuery: { 'api-version': '2024-02-15-preview' },
+            defaultHeaders: { 'api-key': key },
+        });
+    } else {
+        whisperClient = null;
+    }
+    return whisperClient;
 }
 
 /**
  * 音声をテキストに変換（Gemini優先、フォールバックでWhisper）
  */
 export async function transcribeAudio(audioPath: string): Promise<Segment[]> {
+    const geminiKey = process.env.GEMINI_API_KEY;
+    const azureKey = process.env.AZURE_OPENAI_API_KEY;
+    const azureEndpoint = process.env.AZURE_OPENAI_ENDPOINT;
+    const isDevelopmentMode = !geminiKey && (!azureKey || !azureEndpoint);
+
     // 開発モード: モックデータを返す
     if (isDevelopmentMode) {
         console.log('⚠️ 開発モード: モック音声認識を使用');
@@ -40,12 +46,13 @@ export async function transcribeAudio(audioPath: string): Promise<Segment[]> {
     }
 
     // Gemini APIを優先使用
-    if (GEMINI_API_KEY) {
+    if (geminiKey) {
         return transcribeWithGemini(audioPath);
     }
 
     // フォールバック: Azure OpenAI Whisper
-    if (whisperClient) {
+    const client = getWhisperClient();
+    if (client) {
         return transcribeWithWhisper(audioPath);
     }
 
@@ -60,7 +67,7 @@ async function transcribeWithGemini(audioPath: string): Promise<Segment[]> {
     try {
         console.log('🎤 Gemini音声認識を開始:', audioPath);
 
-        const genAI = new GoogleGenerativeAI(GEMINI_API_KEY!);
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
         const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
         // 音声ファイルを読み込み
@@ -135,7 +142,7 @@ async function transcribeWithWhisper(audioPath: string): Promise<Segment[]> {
 
         const audioFile = fs.createReadStream(audioPath);
 
-        const response = await whisperClient!.audio.transcriptions.create({
+        const response = await getWhisperClient()!.audio.transcriptions.create({
             file: audioFile,
             model: 'whisper-1',
             response_format: 'verbose_json',
