@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import { nanoid } from 'nanoid';
 import { transcribeAudio } from './services/speechToText.js';
 import { correctText } from './services/textCorrection.js';
+import { segmentText } from './services/textSegmentation.js';
 import { generateSlides } from './services/slideGenerator.js';
 import { createPptx } from './services/pptxGenerator.js';
 import {
@@ -55,8 +56,8 @@ const upload = multer({
 // プロジェクトデータ（メモリ内保存、本番ではDBを使用）
 interface ProjectData {
     id: string;
-    audioPath: string;
-    audioFileName: string;
+    audioPath?: string;
+    audioFileName?: string;
     segments: Array<{
         id: string;
         start: number;
@@ -119,6 +120,55 @@ app.post('/api/upload', upload.single('audio'), async (req, res) => {
     } catch (error) {
         console.error('アップロードエラー:', error);
         res.status(500).json({ error: 'アップロードに失敗しました' });
+    }
+});
+
+// 1.5. テキスト直接入力
+app.post('/api/text-input', async (req, res) => {
+    try {
+        const { text } = req.body;
+        if (!text || typeof text !== 'string' || text.trim().length === 0) {
+            return res.status(400).json({ error: 'テキストを入力してください' });
+        }
+
+        const projectId = nanoid(12);
+
+        // プロジェクト作成
+        projects.set(projectId, {
+            id: projectId,
+            segments: [],
+            slides: [],
+        });
+
+        // テキスト処理を非同期で実行（修正 → AI分割 → セグメント化）
+        (async () => {
+            try {
+                // 1. 誤字脱字修正
+                console.log('📝 テキスト入力処理開始: 誤字脱字修正');
+                const correctedText = await correctText(text.trim());
+
+                // 2. AIでセグメント分割 + 時間算出
+                console.log('📝 AIセグメント分割開始');
+                const segments = await segmentText(correctedText);
+
+                const project = projects.get(projectId);
+                if (project) {
+                    project.segments = segments.map((seg) => ({
+                        id: nanoid(8),
+                        ...seg,
+                        correctedText: seg.text !== text ? seg.text : undefined,
+                    }));
+                }
+                console.log('✅ テキスト入力処理完了:', segments.length, 'セグメント');
+            } catch (err) {
+                console.error('テキスト処理エラー:', err);
+            }
+        })();
+
+        res.json({ projectId });
+    } catch (error) {
+        console.error('テキスト入力エラー:', error);
+        res.status(500).json({ error: 'テキスト入力の処理に失敗しました' });
     }
 });
 
