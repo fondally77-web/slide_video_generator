@@ -2,12 +2,17 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import OpenAI from 'openai';
 import fs from 'fs';
 import path from 'path';
+import FormData from 'form-data';
+import fetch from 'node-fetch';
 
 interface Segment {
     start: number;
     end: number;
     text: string;
 }
+
+// ローカルWhisperサーバーURL
+const LOCAL_WHISPER_URL = process.env.LOCAL_WHISPER_URL || 'http://localhost:8000';
 
 // Azure OpenAI Whisper クライアント（遅延初期化）
 let whisperClient: OpenAI | null | undefined;
@@ -30,42 +35,88 @@ function getWhisperClient(): OpenAI | null {
 }
 
 /**
- * 音声をテキストに変換（Gemini優先、フォールバックでWhisper）
+ * ローカルWhisperサーバーの状態確認
+ */
+async function checkLocalWhisper(): Promise<boolean> {
+    try {
+        const response = await fetch(`${LOCAL_WHISPER_URL}/health`, {
+            method: 'GET',
+            timeout: 3000,
+        } as any);
+        return response.ok;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * 音声をテキストに変換
+ * 優先順位: ローカルWhisper > Gemini > Azure Whisper > モック
  */
 export async function transcribeAudio(audioPath: string): Promise<Segment[]> {
-    const geminiKey = process.env.GEMINI_API_KEY;
-    const azureKey = process.env.AZURE_OPENAI_API_KEY;
-    const azureEndpoint = process.env.AZURE_OPENAI_ENDPOINT;
-    const isDevelopmentMode = !geminiKey && (!azureKey || !azureEndpoint);
-
-    // 開発モード: モックデータを返す
-    if (isDevelopmentMode) {
-        console.log('⚠️ 開発モード: モック音声認識を使用');
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-        return getMockSegments();
+    // 1. ローカルWhisperを優先
+    const localWhisperAvailable = await checkLocalWhisper();
+    if (localWhisperAvailable) {
+        try {
+            return await transcribeWithLocalWhisper(audioPath);
+        } catch (error) {
+            console.error('❌ ローカルWhisper失敗、次のオプションを試行:', error);
+        }
     }
 
-    // Gemini APIを優先使用
+    // 2. Gemini APIを使用
+    const geminiKey = process.env.GEMINI_API_KEY;
     if (geminiKey) {
         try {
             return await transcribeWithGemini(audioPath);
         } catch (error) {
-            console.error('❌ Gemini音声認識失敗、Azureにフォールバック:', error);
+            console.error('❌ Gemini音声認識失敗:', error);
         }
     }
 
-    // フォールバック: Azure OpenAI Whisper
+    // 3. Azure OpenAI Whisper
     const client = getWhisperClient();
     if (client) {
         try {
             return await transcribeWithWhisper(audioPath);
         } catch (error) {
-            console.error('❌ Whisper音声認識も失敗:', error);
+            console.error('❌ Azure Whisper失敗:', error);
         }
     }
 
+    // 4. すべて失敗した場合はモックデータ
     console.log('⚠️ すべてのAPIに失敗しました。モックデータを使用します。');
     return getMockSegments();
+}
+
+/**
+ * ローカルWhisperサーバーで音声認識
+ */
+async function transcribeWithLocalWhisper(audioPath: string): Promise<Segment[]> {
+    console.log('🎤 ローカルWhisper音声認識を開始:', audioPath);
+
+    const formData = new FormData();
+    formData.append('file', fs.createReadStream(audioPath));
+    formData.append('language', 'ja');
+
+    const response = await fetch(`${LOCAL_WHISPER_URL}/transcribe`, {
+        method: 'POST',
+        body: formData,
+        headers: formData.getHeaders(),
+    });
+
+    if (!response.ok) {
+        throw new Error(`ローカルWhisperエラー: ${response.status}`);
+    }
+
+    const result = await response.json() as any;
+
+    if (!result.success) {
+        throw new Error(result.error || 'ローカルWhisper処理失敗');
+    }
+
+    console.log('✅ ローカルWhisper完了:', result.segments?.length || 0, 'セグメント');
+    return result.segments || [];
 }
 
 /**
@@ -146,7 +197,7 @@ JSON形式で、以下の形式で出力してください：
  */
 async function transcribeWithWhisper(audioPath: string): Promise<Segment[]> {
     try {
-        console.log('🎤 Whisper音声認識を開始:', audioPath);
+        console.log('🎤 Azure Whisper音声認識を開始:', audioPath);
 
         const audioFile = fs.createReadStream(audioPath);
 
@@ -176,11 +227,11 @@ async function transcribeWithWhisper(audioPath: string): Promise<Segment[]> {
             });
         }
 
-        console.log('✅ Whisper音声認識完了:', segments.length, 'セグメント');
+        console.log('✅ Azure Whisper完了:', segments.length, 'セグメント');
         return segments;
 
     } catch (error) {
-        console.error('❌ Whisper音声認識エラー:', error);
+        console.error('❌ Azure Whisperエラー:', error);
         throw error;
     }
 }
