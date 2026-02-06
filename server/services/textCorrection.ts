@@ -39,13 +39,21 @@ export async function correctText(text: string): Promise<string> {
 
     // Gemini APIを優先使用
     if (geminiKey) {
-        return correctWithGemini(text);
+        try {
+            return await correctWithGemini(text);
+        } catch (error) {
+            console.error('❌ Geminiテキスト修正失敗、Azureにフォールバック:', error);
+        }
     }
 
     // フォールバック: Azure OpenAI GPT
     const client = getGptClient();
     if (client) {
-        return correctWithGPT(text);
+        try {
+            return await correctWithGPT(text);
+        } catch (error) {
+            console.error('❌ GPTテキスト修正も失敗:', error);
+        }
     }
 
     return text;
@@ -77,7 +85,7 @@ ${text}`;
 
     } catch (error) {
         console.error('❌ Geminiテキスト修正エラー:', error);
-        return text;
+        throw error;
     }
 }
 
@@ -110,6 +118,6 @@ async function correctWithGPT(text: string): Promise<string> {
 
     } catch (error) {
         console.error('❌ GPTテキスト修正エラー:', error);
-        return text;
+        throw error;
     }
 }

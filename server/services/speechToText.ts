@@ -47,16 +47,24 @@ export async function transcribeAudio(audioPath: string): Promise<Segment[]> {
 
     // Gemini APIを優先使用
     if (geminiKey) {
-        return transcribeWithGemini(audioPath);
+        try {
+            return await transcribeWithGemini(audioPath);
+        } catch (error) {
+            console.error('❌ Gemini音声認識失敗、Azureにフォールバック:', error);
+        }
     }
 
     // フォールバック: Azure OpenAI Whisper
     const client = getWhisperClient();
     if (client) {
-        return transcribeWithWhisper(audioPath);
+        try {
+            return await transcribeWithWhisper(audioPath);
+        } catch (error) {
+            console.error('❌ Whisper音声認識も失敗:', error);
+        }
     }
 
-    console.log('⚠️ APIキーが設定されていません。モックデータを使用します。');
+    console.log('⚠️ すべてのAPIに失敗しました。モックデータを使用します。');
     return getMockSegments();
 }
 
@@ -129,7 +137,7 @@ JSON形式で、以下の形式で出力してください：
 
     } catch (error) {
         console.error('❌ Gemini音声認識エラー:', error);
-        return getMockSegments();
+        throw error;
     }
 }
 
@@ -173,7 +181,7 @@ async function transcribeWithWhisper(audioPath: string): Promise<Segment[]> {
 
     } catch (error) {
         console.error('❌ Whisper音声認識エラー:', error);
-        return getMockSegments();
+        throw error;
     }
 }
 

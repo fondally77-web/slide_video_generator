@@ -62,15 +62,8 @@ export async function segmentText(text: string): Promise<Segment[]> {
     if (isDevelopmentMode) {
         console.log('⚠️ 開発モード: 簡易セグメント分割を使用');
         rawSegments = simpleSplit(text);
-    } else if (geminiKey) {
-        rawSegments = await segmentWithGemini(text);
     } else {
-        const client = getGptClient();
-        if (client) {
-            rawSegments = await segmentWithGPT(text);
-        } else {
-            rawSegments = simpleSplit(text);
-        }
+        rawSegments = await segmentWithAI(text);
     }
 
     // 文字数から時間を算出してセグメントを構築
@@ -135,6 +128,32 @@ function simpleSplit(text: string): string[] {
 }
 
 /**
+ * AIでセグメント分割（Gemini優先、Azure GPTフォールバック）
+ */
+async function segmentWithAI(text: string): Promise<string[]> {
+    const geminiKey = process.env.GEMINI_API_KEY;
+
+    if (geminiKey) {
+        try {
+            return await segmentWithGemini(text);
+        } catch (error) {
+            console.error('❌ Geminiテキスト分割失敗、Azureにフォールバック:', error);
+        }
+    }
+
+    const client = getGptClient();
+    if (client) {
+        try {
+            return await segmentWithGPT(text);
+        } catch (error) {
+            console.error('❌ GPTテキスト分割も失敗:', error);
+        }
+    }
+
+    return simpleSplit(text);
+}
+
+/**
  * Geminiでセグメント分割
  */
 async function segmentWithGemini(text: string): Promise<string[]> {
@@ -167,7 +186,7 @@ async function segmentWithGemini(text: string): Promise<string[]> {
         return segments;
     } catch (error) {
         console.error('❌ Geminiテキスト分割エラー:', error);
-        return simpleSplit(text);
+        throw error;
     }
 }
 
@@ -201,6 +220,6 @@ async function segmentWithGPT(text: string): Promise<string[]> {
         return segments;
     } catch (error) {
         console.error('❌ GPTテキスト分割エラー:', error);
-        return simpleSplit(text);
+        throw error;
     }
 }

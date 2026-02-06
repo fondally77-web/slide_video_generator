@@ -141,13 +141,21 @@ export async function generateSlides(segments: Segment[]): Promise<Slide[]> {
 
     // Gemini APIを優先使用
     if (geminiKey) {
-        return generateWithGemini(segments);
+        try {
+            return await generateWithGemini(segments);
+        } catch (error) {
+            console.error('❌ Geminiスライド生成失敗、Azureにフォールバック:', error);
+        }
     }
 
     // フォールバック: Azure OpenAI GPT
     const client = getGptClient();
     if (client) {
-        return generateWithGPT(segments);
+        try {
+            return await generateWithGPT(segments);
+        } catch (error) {
+            console.error('❌ GPTスライド生成も失敗:', error);
+        }
     }
 
     return getMockSlides();
@@ -216,7 +224,7 @@ ${segmentsText}`;
 
     } catch (error) {
         console.error('❌ Geminiスライド生成エラー:', error);
-        return getMockSlides();
+        throw error;
     }
 }
 
@@ -275,7 +283,7 @@ async function generateWithGPT(segments: Segment[]): Promise<Slide[]> {
 
     } catch (error) {
         console.error('❌ GPTスライド生成エラー:', error);
-        return getMockSlides();
+        throw error;
     }
 }
 
