@@ -49,10 +49,10 @@ function Upload() {
             return;
         }
 
-        // サイズチェック (16MB)
-        const maxSize = 16 * 1024 * 1024;
+        // サイズチェック (64MB)
+        const maxSize = 64 * 1024 * 1024;
         if (file.size > maxSize) {
-            setError('ファイルサイズは16MB以下にしてください');
+            setError('ファイルサイズは64MB以下にしてください');
             return;
         }
 
@@ -255,7 +255,7 @@ function Upload() {
                                             または クリックしてファイルを選択
                                         </p>
                                         <p style={{ color: '#64748b', fontSize: '0.75rem', marginTop: '1rem' }}>
-                                            対応形式: WAV (最大16MB)
+                                            対応形式: WAV (最大64MB)
                                         </p>
                                     </div>
                                 )}
