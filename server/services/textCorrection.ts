@@ -1,29 +1,35 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import OpenAI from 'openai';
 
-// 環境変数チェック
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const AZURE_OPENAI_API_KEY = process.env.AZURE_OPENAI_API_KEY;
-const AZURE_OPENAI_ENDPOINT = process.env.AZURE_OPENAI_ENDPOINT;
-
-// 開発モード判定
-const isDevelopmentMode = !GEMINI_API_KEY && (!AZURE_OPENAI_API_KEY || !AZURE_OPENAI_ENDPOINT);
-
-// Azure OpenAI GPT クライアント設定
-let gptClient: OpenAI | null = null;
-if (AZURE_OPENAI_API_KEY && AZURE_OPENAI_ENDPOINT && process.env.AZURE_OPENAI_DEPLOYMENT_NAME) {
-    gptClient = new OpenAI({
-        apiKey: AZURE_OPENAI_API_KEY,
-        baseURL: `${AZURE_OPENAI_ENDPOINT}/openai/deployments/${process.env.AZURE_OPENAI_DEPLOYMENT_NAME}`,
-        defaultQuery: { 'api-version': '2024-02-15-preview' },
-        defaultHeaders: { 'api-key': AZURE_OPENAI_API_KEY },
-    });
+// Azure OpenAI GPT クライアント（遅延初期化）
+let gptClient: OpenAI | null | undefined;
+function getGptClient(): OpenAI | null {
+    if (gptClient !== undefined) return gptClient;
+    const key = process.env.AZURE_OPENAI_API_KEY;
+    const endpoint = process.env.AZURE_OPENAI_ENDPOINT;
+    const deployment = process.env.AZURE_OPENAI_DEPLOYMENT_NAME;
+    if (key && endpoint && deployment) {
+        gptClient = new OpenAI({
+            apiKey: key,
+            baseURL: `${endpoint}/openai/deployments/${deployment}`,
+            defaultQuery: { 'api-version': '2024-02-15-preview' },
+            defaultHeaders: { 'api-key': key },
+        });
+    } else {
+        gptClient = null;
+    }
+    return gptClient;
 }
 
 /**
  * テキストの誤字脱字を修正（Gemini優先）
  */
 export async function correctText(text: string): Promise<string> {
+    const geminiKey = process.env.GEMINI_API_KEY;
+    const azureKey = process.env.AZURE_OPENAI_API_KEY;
+    const azureEndpoint = process.env.AZURE_OPENAI_ENDPOINT;
+    const isDevelopmentMode = !geminiKey && (!azureKey || !azureEndpoint);
+
     // 開発モード
     if (isDevelopmentMode) {
         console.log('⚠️ 開発モード: モック修正を使用');
@@ -32,12 +38,13 @@ export async function correctText(text: string): Promise<string> {
     }
 
     // Gemini APIを優先使用
-    if (GEMINI_API_KEY) {
+    if (geminiKey) {
         return correctWithGemini(text);
     }
 
     // フォールバック: Azure OpenAI GPT
-    if (gptClient) {
+    const client = getGptClient();
+    if (client) {
         return correctWithGPT(text);
     }
 
@@ -51,7 +58,7 @@ async function correctWithGemini(text: string): Promise<string> {
     try {
         console.log('✏️ Geminiテキスト修正を開始');
 
-        const genAI = new GoogleGenerativeAI(GEMINI_API_KEY!);
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
         const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
         const prompt = `以下のテキストの誤字脱字を修正し、句読点を適切に整えてください。
@@ -81,7 +88,7 @@ async function correctWithGPT(text: string): Promise<string> {
     try {
         console.log('✏️ GPTテキスト修正を開始');
 
-        const response = await gptClient!.chat.completions.create({
+        const response = await getGptClient()!.chat.completions.create({
             model: 'gpt-4',
             messages: [
                 {

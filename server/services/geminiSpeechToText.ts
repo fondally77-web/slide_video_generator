@@ -8,14 +8,12 @@ interface Segment {
     text: string;
 }
 
-// Gemini クライアント設定
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-
 /**
  * Gemini APIを使用して音声をテキストに変換
  */
 export async function transcribeAudioWithGemini(audioPath: string): Promise<Segment[]> {
-    if (!GEMINI_API_KEY) {
+    const geminiKey = process.env.GEMINI_API_KEY;
+    if (!geminiKey) {
         console.log('⚠️ 開発モード: GEMINI_API_KEYが設定されていません。モックデータを使用します。');
         return getMockSegments();
     }
@@ -23,7 +21,7 @@ export async function transcribeAudioWithGemini(audioPath: string): Promise<Segm
     try {
         console.log('🎤 Gemini音声認識を開始:', audioPath);
 
-        const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+        const genAI = new GoogleGenerativeAI(geminiKey);
         const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
         // 音声ファイルを読み込み
