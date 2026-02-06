@@ -98,7 +98,7 @@ function TextEdit() {
             }}>
                 <div style={{ textAlign: 'center' }}>
                     <div className="spinner" style={{ margin: '0 auto 1rem' }} />
-                    <p style={{ color: '#94a3b8' }}>音声を認識しています...</p>
+                    <p style={{ color: '#94a3b8' }}>テキストを処理しています...</p>
                 </div>
             </div>
         );
