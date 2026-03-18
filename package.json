@@ -1,7 +1,7 @@
 {
   "name": "slide-video-generator",
   "version": "1.0.0",
-  "description": "WAVファイルからスライド動画を自動生成するWebアプリケーション",
+  "description": "音声やテキストからスライド動画を生成する制作ツール",
   "type": "module",
   "scripts": {
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
